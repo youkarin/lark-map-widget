@@ -1,36 +1,23 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lark / Feishu Dashboard Map Widget
 
-## Getting Started
+Leaflet 地图组件，读取飞书多维表格（名称字段 + 单列经纬度字段）并在仪表盘上打点。
 
-First, run the development server:
+## 开发
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+访问 `http://localhost:3000` 预览。未在飞书环境时会使用示例数据。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 飞书仪表盘内接入
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1) 在仪表盘添加「组件 / 插件」，配置 iframe 指向 Vercel 部署地址。  
+2) 确保页面在 iframe 内可以访问 `@lark-base-open/js-sdk`（飞书内置）。  
+3) 进入仪表盘后，选择「多维表、名称字段、经纬度字段」，点击「从多维表加载」即可打点。经纬度示例：`31.23,121.48` 或含 `latitude/longitude` 的位置对象。
 
-## Learn More
+## 部署
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 推荐一键部署到 Vercel，保持默认 `next.config.ts`。  
+- 无需服务器端渲染；此页面为纯前端，依赖飞书 iframe 提供的多维表 JS SDK。
