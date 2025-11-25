@@ -13,10 +13,12 @@ export async function loadBitable() {
 
   // Try load from public CDN for local dev preview. If it fails, return null and caller will use mock data.
   try {
-    await injectScript(
-      "https://lf3-static.bytednsdoc.com/obj/bitable-static/feishu-bitable-js-sdk/bitable.js"
-    );
-    return (window as any).bitable ?? null;
+    await injectScript("https://lf3-static.bytednsdoc.com/obj/bitable-static/feishu-bitable-js-sdk/bitable.js");
+    const sdk = (window as any).bitable ?? null;
+    if (sdk?.bridge?.ready) {
+      await sdk.bridge.ready();
+    }
+    return sdk;
   } catch (err) {
     console.warn("Failed to load remote bitable sdk", err);
     return null;

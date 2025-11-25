@@ -45,9 +45,12 @@ export default function Home() {
       try {
         const bitable = await loadBitable();
         if (!bitable?.base) {
-          setStatus("检测到非飞书环境，使用示例数据");
+          setStatus("检测到非飞书环境或 SDK 未就绪，使用示例数据");
           setUsingMock(true);
           return;
+        }
+        if (bitable.bridge?.ready) {
+          await bitable.bridge.ready();
         }
         bitableRef.current = bitable;
         const meta = await bitable.base.getTableMetaList();
