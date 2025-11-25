@@ -3,6 +3,11 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadBitable } from "./lib/bitable-sdk";
+import {
+  DashboardState,
+  getDashboardState,
+  loadDashboard,
+} from "./lib/dashboard";
 
 type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
@@ -39,10 +44,25 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [usingMock, setUsingMock] = useState(true);
   const bitableRef = useRef<any | null>(null);
+  const dashboardRef = useRef<any | null>(null);
+  const [dashboardState, setDashboardState] =
+    useState<DashboardState>("Unknown");
 
   useEffect(() => {
     const bootstrap = async () => {
       try {
+        const dashboard = await loadDashboard();
+        if (dashboard) {
+          dashboardRef.current = dashboard;
+          const state = await getDashboardState(dashboard);
+          setDashboardState(state);
+          if (typeof dashboard?.onStateChange === "function") {
+            dashboard.onStateChange(async (next: DashboardState) => {
+              setDashboardState(next);
+            });
+          }
+        }
+
         const bitable = await loadBitable();
         if (!bitable?.base) {
           setStatus("检测到非飞书环境或 SDK 未就绪，使用示例数据");
@@ -104,13 +124,43 @@ export default function Home() {
   };
 
   const fetchRecords = async () => {
-    if (!bitableRef.current || !isReadyToQuery) {
+    if (!isReadyToQuery) {
       setStatus("请先选择表与字段");
       return;
     }
     setLoading(true);
     setStatus("正在从多维表读取数据…");
     try {
+      const dashboard = dashboardRef.current;
+      // Prefer dashboard-provided data in Create/Config (preview) and View (正式数据)
+      if (dashboard) {
+        if (
+          typeof dashboard.getPreviewData === "function" &&
+          (dashboardState === "Create" || dashboardState === "Config")
+        ) {
+          const preview = await dashboard.getPreviewData();
+          const mapped = mapDashboardData(preview?.data);
+          updatePoints(mapped);
+          return;
+        }
+        if (
+          typeof dashboard.getData === "function" &&
+          (dashboardState === "View" || dashboardState === "FullScreen")
+        ) {
+          const data = await dashboard.getData();
+          const mapped = mapDashboardData(data?.data);
+          updatePoints(mapped);
+          return;
+        }
+      }
+
+      if (!bitableRef.current) {
+        setStatus("未找到 Bitable SDK，使用示例数据");
+        setUsingMock(true);
+        setPoints(mockPoints);
+        return;
+      }
+
       const bitable = bitableRef.current;
       const table = await bitable.base.getTableById(selectedTableId);
       const { records = [] } =
@@ -132,13 +182,7 @@ export default function Home() {
         });
       });
 
-      if (!mapped.length) {
-        setStatus("未解析到有效经纬度，请检查字段格式（如 31.2,121.5）");
-      } else {
-        setStatus(`已加载 ${mapped.length} 条位置`);
-      }
-      setPoints(mapped.length ? mapped : mockPoints);
-      setUsingMock(!mapped.length);
+      updatePoints(mapped);
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -146,6 +190,18 @@ export default function Home() {
       setPoints(mockPoints);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updatePoints = (mapped: MapPoint[]) => {
+    if (!mapped || !mapped.length) {
+      setStatus("未解析到有效经纬度，请检查字段格式（如 31.2,121.5）");
+      setPoints(mockPoints);
+      setUsingMock(true);
+    } else {
+      setStatus(`已加载 ${mapped.length} 条位置`);
+      setPoints(mapped);
+      setUsingMock(false);
     }
   };
 
@@ -177,15 +233,19 @@ export default function Home() {
             <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
               Leaflet · 蓝色主题
             </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              仪表盘状态：{dashboardState}
+            </span>
           </div>
         </header>
 
-        <section className="grid grid-cols-1 gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 md:grid-cols-3">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-700">
-              选择多维表
-            </label>
-            <select
+        {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+          <section className="grid grid-cols-1 gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 md:grid-cols-3">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-slate-700">
+                选择多维表
+              </label>
+              <select
               value={selectedTableId}
               onChange={async (e) => {
                 const nextId = e.target.value;
@@ -245,12 +305,12 @@ export default function Home() {
             </select>
           </div>
 
-          <div className="flex items-center gap-3 md:col-span-3">
-            <button
-              onClick={fetchRecords}
-              disabled={!isReadyToQuery || loading}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-            >
+            <div className="flex items-center gap-3 md:col-span-3">
+              <button
+                onClick={fetchRecords}
+                disabled={!isReadyToQuery || loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
               {loading ? "读取中…" : "从多维表加载"}
             </button>
             <button
@@ -262,12 +322,13 @@ export default function Home() {
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
             >
               使用示例数据
-            </button>
-            <p className="text-xs text-slate-500">
-              经纬度支持字符串“lat,lng”或位置对象（包含 latitude / longitude）。
-            </p>
-          </div>
-        </section>
+              </button>
+              <p className="text-xs text-slate-500">
+                经纬度支持字符串“lat,lng”或位置对象（包含 latitude / longitude）。
+              </p>
+            </div>
+          </section>
+        )}
 
         <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
           <div className="flex items-center justify-between">
@@ -362,4 +423,22 @@ function getCellText(raw: unknown): string {
   } catch {
     return "";
   }
+}
+
+function mapDashboardData(data: any): MapPoint[] {
+  if (!data || !Array.isArray(data)) return [];
+  const mapped: MapPoint[] = [];
+  data.forEach((row: any, idx: number) => {
+    const name = row?.name || row?.title || row?.[0];
+    const loc = row?.location || row?.loc || row?.[1];
+    const coords = parseLocation(loc);
+    if (!coords) return;
+    mapped.push({
+      id: row?.id || String(idx),
+      name: getCellText(name) || "未命名",
+      lat: coords.lat,
+      lng: coords.lng,
+    });
+  });
+  return mapped;
 }
