@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { loadBitable } from "./lib/bitable-sdk";
 
 type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
@@ -42,8 +43,7 @@ export default function Home() {
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        const mod = await import("@lark-base-open/js-sdk");
-        const bitable = mod?.bitable;
+        const bitable = await loadBitable();
         if (!bitable?.base) {
           setStatus("检测到非飞书环境，使用示例数据");
           setUsingMock(true);
