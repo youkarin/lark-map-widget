@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.7";
+const VERSION = "v0.0.6";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -50,7 +50,6 @@ export default function Home() {
   const dashboardRef = useRef<typeof dashboard | null>(null);
   const [dashboardState, setDashboardState] = useState<DashboardState>("Unknown");
   const [config, setConfig] = useState<any | null>(null);
-  const [autoFetched, setAutoFetched] = useState(false);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -151,47 +150,9 @@ export default function Home() {
               total: mapped.total,
               invalid: mapped.invalid,
             });
-            if (
-              !mapped.points.length &&
-              initialTableId &&
-              initialNameField &&
-              initialLocField &&
-              !autoFetched
-            ) {
-              await fetchFromBitable(
-                initialTableId,
-                initialNameField,
-                initialLocField
-              );
-              setAutoFetched(true);
-            }
           } catch {
-            if (
-              initialTableId &&
-              initialNameField &&
-              initialLocField &&
-              !autoFetched
-            ) {
-              await fetchFromBitable(
-                initialTableId,
-                initialNameField,
-                initialLocField
-              );
-              setAutoFetched(true);
-            }
+            // fall back to direct read when no data
           }
-        } else if (
-          initialTableId &&
-          initialNameField &&
-          initialLocField &&
-          !autoFetched
-        ) {
-          await fetchFromBitable(
-            initialTableId,
-            initialNameField,
-            initialLocField
-          );
-          setAutoFetched(true);
         }
 
         setSdkReady(true);
@@ -288,11 +249,38 @@ export default function Home() {
         return;
       }
 
-      await fetchFromBitable(
-        selectedTableId,
-        nameFieldId,
-        locationFieldId
-      );
+      const bitable = bitableRef.current;
+      const table = await bitable.base.getTableById(selectedTableId);
+      const { records = [] } =
+        (await table.getRecords({ pageSize: 5000 })) || {};
+      const mapped: MapPoint[] = [];
+      let invalidSample: any = undefined;
+      let invalidCount = 0;
+
+      records.forEach((record: any, idx: number) => {
+        const nameRaw = record?.fields?.[nameFieldId];
+        const locRaw = record?.fields?.[locationFieldId];
+        const coords = parseLocation(locRaw);
+        if (!coords) {
+          if (invalidSample === undefined) invalidSample = locRaw;
+          invalidCount += 1;
+          return;
+        }
+        mapped.push({
+          id: record.recordId || String(idx),
+          name: getCellText(nameRaw) || "未命名",
+          lat: coords.lat,
+          lng: coords.lng,
+        });
+      });
+
+      updatePoints(mapped, {
+        fallbackToMock: false,
+        clearOnEmpty: true,
+        sampleRaw: invalidSample,
+        total: records.length,
+        invalid: invalidCount,
+      });
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -341,51 +329,6 @@ export default function Home() {
     setStatus(`已加载 ${mapped.length} 条位置${totalInfo}`);
     setPoints(mapped);
     setUsingMock(false);
-  };
-
-  const fetchFromBitable = async (
-    tableId: string,
-    nameField: string,
-    locationField: string
-  ) => {
-    try {
-      const table = await base.getTableById(tableId);
-      const { records = [] } =
-        (await table.getRecords({ pageSize: 5000 })) || {};
-      const mapped: MapPoint[] = [];
-      let invalidSample: any = undefined;
-      let invalidCount = 0;
-
-      records.forEach((record: any, idx: number) => {
-        const nameRaw = record?.fields?.[nameField];
-        const locRaw = record?.fields?.[locationField];
-        const coords = parseLocation(locRaw);
-        if (!coords) {
-          if (invalidSample === undefined) invalidSample = locRaw;
-          invalidCount += 1;
-          return;
-        }
-        mapped.push({
-          id: record.recordId || String(idx),
-          name: getCellText(nameRaw) || "未命名",
-          lat: coords.lat,
-          lng: coords.lng,
-        });
-      });
-
-      updatePoints(mapped, {
-        fallbackToMock: false,
-        clearOnEmpty: true,
-        sampleRaw: invalidSample,
-        total: records.length,
-        invalid: invalidCount,
-      });
-    } catch (error) {
-      console.error(error);
-      setStatus("读取失败，已回退到示例数据");
-      setUsingMock(true);
-      setPoints(mockPoints);
-    }
   };
 
   return (

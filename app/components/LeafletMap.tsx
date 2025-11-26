@@ -22,7 +22,7 @@ const defaultIcon = L.icon({
 
 export function LeafletMap({
   points,
-  zoom = 11,
+  zoom = 6,
   height = 520,
 }: {
   points: MapPoint[];
