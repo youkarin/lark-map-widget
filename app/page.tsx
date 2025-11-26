@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.13";
+const VERSION = "v0.0.14";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -53,6 +53,7 @@ export default function Home() {
   const [autoFetched, setAutoFetched] = useState(false);
   const [selectedNameField, setSelectedNameField] = useState<string>("");
   const [selectedLocField, setSelectedLocField] = useState<string>("");
+  const refreshTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -194,12 +195,52 @@ export default function Home() {
     };
 
     bootstrap();
+
+    return () => {
+      if (refreshTimer.current) {
+        clearInterval(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    };
   }, []);
 
   const isReadyToQuery =
     Boolean(selectedTableId) && Boolean(nameFieldId) && Boolean(locationFieldId);
 
   const activePoints = useMemo(() => points, [points]);
+
+  // View/FullScreen 自动轮询最新数据
+  useEffect(() => {
+    if (
+      dashboardState === "View" ||
+      dashboardState === "FullScreen"
+    ) {
+      const tableId = selectedTableId;
+      const nameId = selectedNameField || nameFieldId;
+      const locId = selectedLocField || locationFieldId;
+      if (tableId && nameId && locId) {
+        // 立即拉一次
+        fetchFromBitable(tableId, nameId, locId);
+        // 启动轮询
+        if (refreshTimer.current) clearInterval(refreshTimer.current);
+        refreshTimer.current = setInterval(() => {
+          fetchFromBitable(tableId, nameId, locId);
+        }, 30000); // 30s 轮询
+      }
+    } else {
+      if (refreshTimer.current) {
+        clearInterval(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    }
+  }, [
+    dashboardState,
+    selectedTableId,
+    selectedNameField,
+    selectedLocField,
+    nameFieldId,
+    locationFieldId,
+  ]);
 
   const loadFields = async (tableId: string, bitableInstance: any) => {
     try {
