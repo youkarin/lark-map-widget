@@ -2,16 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { loadBitable } from "./lib/bitable-sdk";
-import {
-  DashboardState,
-  getDashboardState,
-  loadDashboard,
-} from "./lib/dashboard";
+import { base, bitable, dashboard } from "@lark-base-open/js-sdk";
 
 type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
 type MapPoint = { id: string; name: string; lat: number; lng: number };
+type DashboardState = "Create" | "Config" | "View" | "FullScreen" | "Unknown";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -44,45 +40,99 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [usingMock, setUsingMock] = useState(true);
   const bitableRef = useRef<any | null>(null);
-  const dashboardRef = useRef<any | null>(null);
-  const [dashboardState, setDashboardState] =
-    useState<DashboardState>("Unknown");
+  const dashboardRef = useRef<typeof dashboard | null>(null);
+  const [dashboardState, setDashboardState] = useState<DashboardState>("Unknown");
+  const [config, setConfig] = useState<any | null>(null);
 
   useEffect(() => {
     const bootstrap = async () => {
       try {
-        const dashboard = await loadDashboard();
-        if (dashboard) {
-          dashboardRef.current = dashboard;
-          const state = await getDashboardState(dashboard);
-          setDashboardState(state);
-          if (typeof dashboard?.onStateChange === "function") {
-            dashboard.onStateChange(async (next: DashboardState) => {
-              setDashboardState(next);
-            });
-          }
+        await bridgeReady(bitable);
+        await bridgeReady(dashboard);
+
+        dashboardRef.current = dashboard;
+        const st =
+          (dashboard && (dashboard.state as DashboardState)) ||
+          (dashboard && (await (dashboard as any)?.getState?.())) ||
+          "Unknown";
+        setDashboardState(st ?? "Unknown");
+
+        if ((dashboard as any)?.onStateChange) {
+          (dashboard as any).onStateChange((next: DashboardState) => {
+            setDashboardState(next ?? "Unknown");
+          });
         }
 
-        const bitable = await loadBitable();
-        if (!bitable?.base) {
-          setStatus("检测到非飞书环境或 SDK 未就绪，使用示例数据");
-          setUsingMock(true);
-          return;
+        if ((dashboard as any)?.onConfigChange) {
+          (dashboard as any).onConfigChange(async (e: any) => {
+            setConfig(e?.data);
+          });
         }
-        if (bitable.bridge?.ready) {
-          await bitable.bridge.ready();
+
+        if ((dashboard as any)?.onDataChange) {
+          (dashboard as any).onDataChange(async (e: any) => {
+            const mapped = mapDashboardData(e?.data);
+            updatePoints(mapped);
+          });
         }
+
         bitableRef.current = bitable;
-        const meta = await bitable.base.getTableMetaList();
-        const tables = (meta?.tables || []).map((t: any) => ({
+        const meta = await base.getTableMetaList();
+        const tables = (meta || []).map((t: any) => ({
           id: t.id,
           name: t.name,
         }));
         setTableOptions(tables);
-        if (tables[0]) {
-          setSelectedTableId(tables[0].id);
-          await loadFields(tables[0].id, bitable);
+
+        let initialTableId = tables[0]?.id ?? "";
+        let initialNameField = "";
+        let initialLocField = "";
+
+        if (dashboard) {
+          try {
+            if (st !== "Create") {
+              const cfg: any = await dashboard.getConfig();
+              setConfig(cfg);
+              const dc = normalizeDataConditions(cfg?.dataConditions);
+              initialTableId = dc?.tableId || initialTableId;
+              initialNameField = cfg?.customConfig?.nameFieldId || "";
+              initialLocField = cfg?.customConfig?.locationFieldId || "";
+            }
+          } catch (err) {
+            console.warn("getConfig failed (likely Create state)", err);
+          }
         }
+
+        if (initialTableId) {
+          setSelectedTableId(initialTableId);
+          await loadFields(initialTableId, bitable);
+        }
+        if (initialNameField) setNameFieldId(initialNameField);
+        if (initialLocField) setLocationFieldId(initialLocField);
+
+        if (
+          dashboard &&
+          (st === "Create" || st === "Config") &&
+          (dashboard as any)?.getPreviewData
+        ) {
+          const dc = normalizeDataConditions(
+            config?.dataConditions ?? [{ tableId: initialTableId }]
+          );
+          if (dc) {
+            const preview = await (dashboard as any).getPreviewData(dc as any);
+            const mapped = mapDashboardData(preview?.data ?? preview);
+            updatePoints(mapped);
+          }
+          } else if (dashboard && (st === "View" || st === "FullScreen")) {
+            try {
+            const data: any = await dashboard.getData?.();
+            const mapped = mapDashboardData((data as any)?.data ?? data);
+            updatePoints(mapped);
+          } catch {
+            // fall back to direct read when no data
+          }
+        }
+
         setSdkReady(true);
         setUsingMock(false);
         setStatus("已连接飞书多维表，选择字段后加载数据");
@@ -101,9 +151,9 @@ export default function Home() {
 
   const activePoints = useMemo(() => points, [points]);
 
-  const loadFields = async (tableId: string, bitable: any) => {
+  const loadFields = async (tableId: string, bitableInstance: any) => {
     try {
-      const table = await bitable.base.getTableById(tableId);
+      const table = await bitableInstance.base.getTableById(tableId);
       const metas = await table.getFieldMetaList();
       const parsed = (metas || []).map((f: any) => ({
         id: f.id,
@@ -131,24 +181,25 @@ export default function Home() {
     setLoading(true);
     setStatus("正在从多维表读取数据…");
     try {
-      const dashboard = dashboardRef.current;
+      const dash = dashboardRef.current;
       // Prefer dashboard-provided data in Create/Config (preview) and View (正式数据)
-      if (dashboard) {
+      if (dash) {
         if (
-          typeof dashboard.getPreviewData === "function" &&
+          typeof dash.getPreviewData === "function" &&
           (dashboardState === "Create" || dashboardState === "Config")
         ) {
-          const preview = await dashboard.getPreviewData();
-          const mapped = mapDashboardData(preview?.data);
+          const dc = deriveDataConditions(config, selectedTableId);
+          const preview: any = await dash.getPreviewData(dc as any);
+          const mapped = mapDashboardData(preview?.data ?? preview);
           updatePoints(mapped);
           return;
         }
         if (
-          typeof dashboard.getData === "function" &&
+          typeof dash.getData === "function" &&
           (dashboardState === "View" || dashboardState === "FullScreen")
         ) {
-          const data = await dashboard.getData();
-          const mapped = mapDashboardData(data?.data);
+          const data: any = await dash.getData();
+          const mapped = mapDashboardData((data as any)?.data ?? data);
           updatePoints(mapped);
           return;
         }
@@ -311,13 +362,38 @@ export default function Home() {
                 disabled={!isReadyToQuery || loading}
                 className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-              {loading ? "读取中…" : "从多维表加载"}
-            </button>
-            <button
-              onClick={() => {
-                setPoints(mockPoints);
-                setUsingMock(true);
-                setStatus("已切换到示例数据");
+                {loading ? "读取中…" : "从多维表加载"}
+              </button>
+              {dashboardRef.current?.saveConfig && (
+                <button
+                  onClick={async () => {
+                    const dash = dashboardRef.current;
+                    if (!dash) return;
+                    const dc = deriveDataConditions(config, selectedTableId);
+                    try {
+                      await dash.saveConfig({
+                        dataConditions: dc,
+                        customConfig: {
+                          nameFieldId,
+                          locationFieldId,
+                        },
+                      });
+                      setStatus("配置已保存");
+                    } catch (e) {
+                      console.error(e);
+                      setStatus("配置保存失败");
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:text-blue-800"
+                >
+                  保存配置
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  setPoints(mockPoints);
+                  setUsingMock(true);
+                  setStatus("已切换到示例数据");
               }}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
             >
@@ -426,19 +502,65 @@ function getCellText(raw: unknown): string {
 }
 
 function mapDashboardData(data: any): MapPoint[] {
-  if (!data || !Array.isArray(data)) return [];
-  const mapped: MapPoint[] = [];
-  data.forEach((row: any, idx: number) => {
-    const name = row?.name || row?.title || row?.[0];
-    const loc = row?.location || row?.loc || row?.[1];
-    const coords = parseLocation(loc);
-    if (!coords) return;
-    mapped.push({
-      id: row?.id || String(idx),
-      name: getCellText(name) || "未命名",
-      lat: coords.lat,
-      lng: coords.lng,
+  if (!data) return [];
+
+  // IData: IDataItem[][] from dashboard getData / getPreviewData
+  if (Array.isArray(data) && Array.isArray(data[0])) {
+    const mapped: MapPoint[] = [];
+    data.slice(1).forEach((row: any[], idx: number) => {
+      const name = row?.[0]?.text ?? row?.[0]?.value ?? row?.[0];
+      const loc = row?.[1]?.text ?? row?.[1]?.value ?? row?.[1];
+      const coords = parseLocation(loc);
+      if (!coords) return;
+      mapped.push({
+        id: String(idx),
+        name: getCellText(name) || "未命名",
+        lat: coords.lat,
+        lng: coords.lng,
+      });
     });
-  });
-  return mapped;
+    return mapped;
+  }
+
+  if (Array.isArray(data)) {
+    const mapped: MapPoint[] = [];
+    data.forEach((row: any, idx: number) => {
+      const name = row?.name || row?.title || row?.[0];
+      const loc = row?.location || row?.loc || row?.[1];
+      const coords = parseLocation(loc);
+      if (!coords) return;
+      mapped.push({
+        id: row?.id || String(idx),
+        name: getCellText(name) || "未命名",
+        lat: coords.lat,
+        lng: coords.lng,
+      });
+    });
+    return mapped;
+  }
+
+  return [];
+}
+
+function deriveDataConditions(cfg: any, tableId: string) {
+  if (cfg?.dataConditions) return cfg.dataConditions;
+  if (tableId) return [{ tableId }];
+  return undefined;
+}
+
+function normalizeDataConditions(dc: any): { tableId?: string } | undefined {
+  if (!dc) return undefined;
+  const first = Array.isArray(dc) ? dc[0] : dc;
+  if (!first) return undefined;
+  return { tableId: first.tableId };
+}
+
+async function bridgeReady(obj: any) {
+  if (obj?.bridge?.ready) {
+    try {
+      await obj.bridge.ready();
+    } catch {
+      // ignore
+    }
+  }
 }
