@@ -122,7 +122,7 @@ export default function Home() {
             const preview = await (dashboard as any).getPreviewData(dc as any);
             const mapped = mapDashboardData(preview?.data ?? preview);
             if (mapped.length) {
-              updatePoints(mapped);
+              updatePoints(mapped, { fallbackToMock: false });
             }
           }
         } else if (dashboard && (st === "View" || st === "FullScreen")) {
@@ -130,7 +130,7 @@ export default function Home() {
             const data: any = await dashboard.getData?.();
             const mapped = mapDashboardData((data as any)?.data ?? data);
             if (mapped.length) {
-              updatePoints(mapped);
+              updatePoints(mapped, { fallbackToMock: false });
             }
           } catch {
             // fall back to direct read when no data
@@ -196,7 +196,7 @@ export default function Home() {
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview);
           if (mapped.length) {
-            updatePoints(mapped);
+            updatePoints(mapped, { fallbackToMock: false });
             return;
           }
         }
@@ -207,7 +207,7 @@ export default function Home() {
           const data: any = await dash.getData();
           const mapped = mapDashboardData((data as any)?.data ?? data);
           if (mapped.length) {
-            updatePoints(mapped);
+            updatePoints(mapped, { fallbackToMock: false });
             return;
           }
         }
@@ -241,7 +241,7 @@ export default function Home() {
         });
       });
 
-      updatePoints(mapped);
+      updatePoints(mapped, { fallbackToMock: false });
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -252,16 +252,24 @@ export default function Home() {
     }
   };
 
-  const updatePoints = (mapped: MapPoint[]) => {
+  const updatePoints = (
+    mapped: MapPoint[],
+    opts: { fallbackToMock?: boolean } = {}
+  ) => {
     if (!mapped || !mapped.length) {
       setStatus("未解析到有效经纬度，请检查字段格式（如 31.2,121.5）");
-      setPoints(mockPoints);
-      setUsingMock(true);
-    } else {
-      setStatus(`已加载 ${mapped.length} 条位置`);
-      setPoints(mapped);
-      setUsingMock(false);
+      if (opts.fallbackToMock) {
+        setPoints(mockPoints);
+        setUsingMock(true);
+      } else {
+        setPoints([]);
+        setUsingMock(false);
+      }
+      return;
     }
+    setStatus(`已加载 ${mapped.length} 条位置`);
+    setPoints(mapped);
+    setUsingMock(false);
   };
 
   return (
