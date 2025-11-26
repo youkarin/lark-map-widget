@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.10";
+const VERSION = "v0.0.11";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -75,7 +75,40 @@ export default function Home() {
 
         if ((dashboard as any)?.onConfigChange) {
           (dashboard as any).onConfigChange(async (e: any) => {
-            setConfig(e?.data);
+            const nextCfg = e?.data;
+            setConfig(nextCfg);
+            const dc = normalizeDataConditions(nextCfg?.dataConditions);
+            const tableId = dc?.tableId || selectedTableId;
+            const nameId =
+              nextCfg?.customConfig?.nameFieldId || selectedNameField;
+            const locId =
+              nextCfg?.customConfig?.locationFieldId || selectedLocField;
+
+            if (tableId) {
+              setSelectedTableId(tableId);
+              setAutoFetched(false);
+              if (bitableRef.current) {
+                await loadFields(tableId, bitableRef.current);
+              }
+            }
+            if (nameId) {
+              setNameFieldId(nameId);
+              setSelectedNameField(nameId);
+            }
+            if (locId) {
+              setLocationFieldId(locId);
+              setSelectedLocField(locId);
+            }
+
+            if (
+              (dashboardState === "View" || dashboardState === "FullScreen") &&
+              tableId &&
+              nameId &&
+              locId
+            ) {
+              await fetchFromBitable(tableId, nameId, locId);
+              setAutoFetched(true);
+            }
           });
         }
 
@@ -268,17 +301,22 @@ export default function Home() {
     }
   };
 
-  const autoSaveConfig = async () => {
+  const autoSaveConfig = async (
+    tableId?: string,
+    nameId?: string,
+    locId?: string
+  ) => {
     const dash = dashboardRef.current;
     if (!dash?.saveConfig) return;
     try {
-      const dc = deriveDataConditions(config, selectedTableId);
+      const targetTable = tableId || selectedTableId;
+      const dc = deriveDataConditions(config, targetTable);
       if (!dc) return;
       await dash.saveConfig({
         dataConditions: dc,
         customConfig: {
-          nameFieldId,
-          locationFieldId,
+          nameFieldId: nameId ?? nameFieldId,
+          locationFieldId: locId ?? locationFieldId,
         },
       });
     } catch (err) {
@@ -306,7 +344,7 @@ export default function Home() {
           ? ` | 总记录: ${opts.total ?? 0}, 无效: ${opts.invalid ?? 0}`
           : "";
       setStatus(
-        `未解析到有效经纬度，请检查字段格式（如 12345）。${extra}${totalInfo}`
+        `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}${totalInfo}`
       );
       if (opts.fallbackToMock) {
         setPoints(mockPoints);
@@ -418,18 +456,22 @@ export default function Home() {
                 选择多维表
               </label>
               <select
-              value={selectedTableId}
-              onChange={async (e) => {
-                const nextId = e.target.value;
-                setSelectedTableId(nextId);
-                setNameFieldId("");
-                setLocationFieldId("");
-                if (bitableRef.current && nextId) {
-                  await loadFields(nextId, bitableRef.current);
-                }
-              }}
-              className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-            >
+                value={selectedTableId}
+                onChange={async (e) => {
+                  const nextId = e.target.value;
+                  setSelectedTableId(nextId);
+                  setAutoFetched(false);
+                  setNameFieldId("");
+                  setLocationFieldId("");
+                  setSelectedNameField("");
+                  setSelectedLocField("");
+                  if (bitableRef.current && nextId) {
+                    await loadFields(nextId, bitableRef.current);
+                  }
+                  await autoSaveConfig(nextId, "", "");
+                }}
+                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              >
               <option value="">
                 {sdkReady ? "请选择表" : "等待飞书环境 / 使用示例"}
               </option>
@@ -447,9 +489,12 @@ export default function Home() {
             </label>
             <select
               value={nameFieldId}
-              onChange={(e) => {
-                setNameFieldId(e.target.value);
-                setSelectedNameField(e.target.value);
+              onChange={async (e) => {
+                const next = e.target.value;
+                setNameFieldId(next);
+                setSelectedNameField(next);
+                setAutoFetched(false);
+                await autoSaveConfig(selectedTableId, next, selectedLocField);
               }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
@@ -468,9 +513,12 @@ export default function Home() {
             </label>
             <select
               value={locationFieldId}
-              onChange={(e) => {
-                setLocationFieldId(e.target.value);
-                setSelectedLocField(e.target.value);
+              onChange={async (e) => {
+                const next = e.target.value;
+                setLocationFieldId(next);
+                setSelectedLocField(next);
+                setAutoFetched(false);
+                await autoSaveConfig(selectedTableId, selectedNameField, next);
               }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
