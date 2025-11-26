@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.4";
+const VERSION = "v0.0.5";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -535,12 +535,27 @@ function parseLocation(raw: unknown): { lat: number; lng: number } | null {
   }
 
   if (Array.isArray(raw) && raw.length > 0) {
-    // 有些字段会返回数组
-    return parseLocation(raw[0]);
+    // 有些字段会返回数组，可能是富文本片段
+    const first = raw[0];
+    if (typeof first === "object" && first !== null) {
+      if ("text" in first && typeof (first as any).text === "string") {
+        return parseLocation((first as any).text);
+      }
+      if ("value" in first && typeof (first as any).value === "string") {
+        return parseLocation((first as any).value);
+      }
+    }
+    return parseLocation(first);
   }
 
   if (typeof raw === "object") {
     const obj = raw as any;
+    if (typeof obj?.text === "string") {
+      return parseLocation(obj.text);
+    }
+    if (typeof obj?.value === "string") {
+      return parseLocation(obj.value);
+    }
     if (
       Number.isFinite(obj?.latitude) &&
       Number.isFinite(obj?.longitude)
