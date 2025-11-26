@@ -8,6 +8,7 @@ type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
 type MapPoint = { id: string; name: string; lat: number; lng: number };
 type DashboardState = "Create" | "Config" | "View" | "FullScreen" | "Unknown";
+const VERSION = "v0.0.2";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -36,7 +37,7 @@ export default function Home() {
   const [selectedTableId, setSelectedTableId] = useState<string>("");
   const [nameFieldId, setNameFieldId] = useState<string>("");
   const [locationFieldId, setLocationFieldId] = useState<string>("");
-  const [points, setPoints] = useState<MapPoint[]>(mockPoints);
+  const [points, setPoints] = useState<MapPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingMock, setUsingMock] = useState(true);
   const bitableRef = useRef<any | null>(null);
@@ -121,17 +122,13 @@ export default function Home() {
           if (dc) {
             const preview = await (dashboard as any).getPreviewData(dc as any);
             const mapped = mapDashboardData(preview?.data ?? preview);
-            if (mapped.length) {
-              updatePoints(mapped, { fallbackToMock: false });
-            }
+            updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
           }
         } else if (dashboard && (st === "View" || st === "FullScreen")) {
           try {
             const data: any = await dashboard.getData?.();
             const mapped = mapDashboardData((data as any)?.data ?? data);
-            if (mapped.length) {
-              updatePoints(mapped, { fallbackToMock: false });
-            }
+            updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
           } catch {
             // fall back to direct read when no data
           }
@@ -139,6 +136,9 @@ export default function Home() {
 
         setSdkReady(true);
         setUsingMock(false);
+        if (!points.length) {
+          setPoints([]);
+        }
         setStatus("已连接飞书多维表，选择字段后加载数据");
       } catch (err) {
         console.error(err);
@@ -195,10 +195,8 @@ export default function Home() {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview);
-          if (mapped.length) {
-            updatePoints(mapped, { fallbackToMock: false });
-            return;
-          }
+          updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
+          if (mapped.length) return;
         }
         if (
           typeof dash.getData === "function" &&
@@ -206,10 +204,8 @@ export default function Home() {
         ) {
           const data: any = await dash.getData();
           const mapped = mapDashboardData((data as any)?.data ?? data);
-          if (mapped.length) {
-            updatePoints(mapped, { fallbackToMock: false });
-            return;
-          }
+          updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
+          if (mapped.length) return;
         }
       }
 
@@ -241,7 +237,7 @@ export default function Home() {
         });
       });
 
-      updatePoints(mapped, { fallbackToMock: false });
+      updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -254,14 +250,14 @@ export default function Home() {
 
   const updatePoints = (
     mapped: MapPoint[],
-    opts: { fallbackToMock?: boolean } = {}
+    opts: { fallbackToMock?: boolean; clearOnEmpty?: boolean } = {}
   ) => {
     if (!mapped || !mapped.length) {
       setStatus("未解析到有效经纬度，请检查字段格式（如 31.2,121.5）");
       if (opts.fallbackToMock) {
         setPoints(mockPoints);
         setUsingMock(true);
-      } else {
+      } else if (opts.clearOnEmpty) {
         setPoints([]);
         setUsingMock(false);
       }
@@ -302,6 +298,9 @@ export default function Home() {
             </span>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
               仪表盘状态：{dashboardState}
+            </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              版本：{VERSION}
             </span>
           </div>
         </header>
