@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.5";
+const VERSION = "v0.0.6";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),

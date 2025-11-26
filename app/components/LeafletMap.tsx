@@ -37,7 +37,8 @@ export function LeafletMap({
     if (points.length > 0) {
       return [points[0].lat, points[0].lng];
     }
-    return [31.2304, 121.4737]; // 默认聚焦上海
+    // 默认聚焦意大利（近博洛尼亚/圣马力诺一带）
+    return [44.0, 12.0];
   }, [points]);
 
   return (
