@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.9";
+const VERSION = "v0.0.10";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -155,8 +155,7 @@ export default function Home() {
           (st === "View" || st === "FullScreen") &&
           initialTableId &&
           initialNameField &&
-          initialLocField &&
-          !autoFetched
+          initialLocField
         ) {
           await fetchFromBitable(
             initialTableId,
@@ -234,7 +233,10 @@ export default function Home() {
             total: mapped.total,
             invalid: mapped.invalid,
           });
-          if (mapped.points.length) return;
+          if (mapped.points.length) {
+            await autoSaveConfig();
+            return;
+          }
         }
       }
 
@@ -250,6 +252,7 @@ export default function Home() {
         nameFieldId,
         locationFieldId
       );
+      await autoSaveConfig();
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -257,6 +260,24 @@ export default function Home() {
       setPoints(mockPoints);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const autoSaveConfig = async () => {
+    const dash = dashboardRef.current;
+    if (!dash?.saveConfig) return;
+    try {
+      const dc = deriveDataConditions(config, selectedTableId);
+      if (!dc) return;
+      await dash.saveConfig({
+        dataConditions: dc,
+        customConfig: {
+          nameFieldId,
+          locationFieldId,
+        },
+      });
+    } catch (err) {
+      console.warn("saveConfig failed", err);
     }
   };
 
@@ -422,8 +443,10 @@ export default function Home() {
             </label>
             <select
               value={nameFieldId}
-              onChange={(e) => setNameFieldId(e.target.value)}
-              onBlur={(e) => setSelectedNameField(e.target.value)}
+              onChange={(e) => {
+                setNameFieldId(e.target.value);
+                setSelectedNameField(e.target.value);
+              }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
               <option value="">请选择</option>
@@ -441,8 +464,10 @@ export default function Home() {
             </label>
             <select
               value={locationFieldId}
-              onChange={(e) => setLocationFieldId(e.target.value)}
-              onBlur={(e) => setSelectedLocField(e.target.value)}
+              onChange={(e) => {
+                setLocationFieldId(e.target.value);
+                setSelectedLocField(e.target.value);
+              }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
               <option value="">请选择</option>
