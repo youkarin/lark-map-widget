@@ -70,6 +70,21 @@ export default function Home() {
         if ((dashboard as any)?.onStateChange) {
           (dashboard as any).onStateChange((next: DashboardState) => {
             setDashboardState(next ?? "Unknown");
+            if (
+              (next === "View" || next === "FullScreen") &&
+              selectedTableId &&
+              (selectedNameField || nameFieldId) &&
+              (selectedLocField || locationFieldId)
+            ) {
+              const nameId = selectedNameField || nameFieldId;
+              const locId = selectedLocField || locationFieldId;
+              if (nameId && locId) {
+                fetchFromBitable(selectedTableId, nameId, locId);
+              }
+            }
+            if (next === "Config" || next === "Create") {
+              setAutoFetched(false);
+            }
           });
         }
 
@@ -492,11 +507,11 @@ export default function Home() {
             <select
               value={nameFieldId}
               onChange={async (e) => {
-                const next = e.target.value;
-                setNameFieldId(next);
-                setSelectedNameField(next);
-                setAutoFetched(false);
-                await autoSaveConfig(selectedTableId, next, selectedLocField);
+                  const next = e.target.value;
+                  setNameFieldId(next);
+                  setSelectedNameField(next);
+                  setAutoFetched(false);
+                  await autoSaveConfig(selectedTableId, next, selectedLocField);
               }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
@@ -516,11 +531,11 @@ export default function Home() {
             <select
               value={locationFieldId}
               onChange={async (e) => {
-                const next = e.target.value;
-                setLocationFieldId(next);
-                setSelectedLocField(next);
-                setAutoFetched(false);
-                await autoSaveConfig(selectedTableId, selectedNameField, next);
+                  const next = e.target.value;
+                  setLocationFieldId(next);
+                  setSelectedLocField(next);
+                  setAutoFetched(false);
+                  await autoSaveConfig(selectedTableId, selectedNameField, next);
               }}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
