@@ -121,13 +121,17 @@ export default function Home() {
           if (dc) {
             const preview = await (dashboard as any).getPreviewData(dc as any);
             const mapped = mapDashboardData(preview?.data ?? preview);
-            updatePoints(mapped);
+            if (mapped.length) {
+              updatePoints(mapped);
+            }
           }
-          } else if (dashboard && (st === "View" || st === "FullScreen")) {
-            try {
+        } else if (dashboard && (st === "View" || st === "FullScreen")) {
+          try {
             const data: any = await dashboard.getData?.();
             const mapped = mapDashboardData((data as any)?.data ?? data);
-            updatePoints(mapped);
+            if (mapped.length) {
+              updatePoints(mapped);
+            }
           } catch {
             // fall back to direct read when no data
           }
@@ -191,8 +195,10 @@ export default function Home() {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview);
-          updatePoints(mapped);
-          return;
+          if (mapped.length) {
+            updatePoints(mapped);
+            return;
+          }
         }
         if (
           typeof dash.getData === "function" &&
@@ -200,8 +206,10 @@ export default function Home() {
         ) {
           const data: any = await dash.getData();
           const mapped = mapDashboardData((data as any)?.data ?? data);
-          updatePoints(mapped);
-          return;
+          if (mapped.length) {
+            updatePoints(mapped);
+            return;
+          }
         }
       }
 
