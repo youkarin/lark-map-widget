@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.12";
+const VERSION = "v0.0.13";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -68,22 +68,13 @@ export default function Home() {
         setDashboardState(st ?? "Unknown");
 
         if ((dashboard as any)?.onStateChange) {
-          (dashboard as any).onStateChange((next: DashboardState) => {
+          (dashboard as any).onStateChange(async (next: DashboardState) => {
             setDashboardState(next ?? "Unknown");
-            if (
-              (next === "View" || next === "FullScreen") &&
-              selectedTableId &&
-              (selectedNameField || nameFieldId) &&
-              (selectedLocField || locationFieldId)
-            ) {
-              const nameId = selectedNameField || nameFieldId;
-              const locId = selectedLocField || locationFieldId;
-              if (nameId && locId) {
-                fetchFromBitable(selectedTableId, nameId, locId);
-              }
-            }
             if (next === "Config" || next === "Create") {
               setAutoFetched(false);
+            }
+            if (next === "View" || next === "FullScreen") {
+              await renderFromConfig();
             }
           });
         }
@@ -92,38 +83,7 @@ export default function Home() {
           (dashboard as any).onConfigChange(async (e: any) => {
             const nextCfg = e?.data;
             setConfig(nextCfg);
-            const dc = normalizeDataConditions(nextCfg?.dataConditions);
-            const tableId = dc?.tableId || selectedTableId;
-            const nameId =
-              nextCfg?.customConfig?.nameFieldId || selectedNameField;
-            const locId =
-              nextCfg?.customConfig?.locationFieldId || selectedLocField;
-
-            if (tableId) {
-              setSelectedTableId(tableId);
-              setAutoFetched(false);
-              if (bitableRef.current) {
-                await loadFields(tableId, bitableRef.current);
-              }
-            }
-            if (nameId) {
-              setNameFieldId(nameId);
-              setSelectedNameField(nameId);
-            }
-            if (locId) {
-              setLocationFieldId(locId);
-              setSelectedLocField(locId);
-            }
-
-            if (
-              (dashboardState === "View" || dashboardState === "FullScreen") &&
-              tableId &&
-              nameId &&
-              locId
-            ) {
-              await fetchFromBitable(tableId, nameId, locId);
-              setAutoFetched(true);
-            }
+            await renderFromConfig();
           });
         }
 
@@ -203,12 +163,14 @@ export default function Home() {
           }
         }
 
-        // 在展示态优先直接读取多维表，避免 getData 聚合带来的格式问题
-        if (
-          (st === "View" || st === "FullScreen") &&
+        // 在展示态优先使用已保存配置直接读取多维表
+        if (st === "View" || st === "FullScreen") {
+          await renderFromConfig();
+        } else if (
           initialTableId &&
           initialNameField &&
-          initialLocField
+          initialLocField &&
+          !autoFetched
         ) {
           await fetchFromBitable(
             initialTableId,
@@ -426,6 +388,48 @@ export default function Home() {
       setStatus("读取失败，已回退到示例数据");
       setUsingMock(true);
       setPoints(mockPoints);
+    }
+  };
+
+  const renderFromConfig = async () => {
+    try {
+      const dash = dashboardRef.current;
+      const cfg: any = await dash?.getConfig?.();
+      if (cfg) {
+        setConfig(cfg);
+      }
+      const dc = normalizeDataConditions(cfg?.dataConditions);
+      const tableId = dc?.tableId || selectedTableId;
+      const nameId =
+        cfg?.customConfig?.nameFieldId ||
+        selectedNameField ||
+        nameFieldId;
+      const locId =
+        cfg?.customConfig?.locationFieldId ||
+        selectedLocField ||
+        locationFieldId;
+
+      if (tableId) {
+        setSelectedTableId(tableId);
+        if (bitableRef.current) {
+          await loadFields(tableId, bitableRef.current);
+        }
+      }
+      if (nameId) {
+        setNameFieldId(nameId);
+        setSelectedNameField(nameId);
+      }
+      if (locId) {
+        setLocationFieldId(locId);
+        setSelectedLocField(locId);
+      }
+
+      if (tableId && nameId && locId) {
+        await fetchFromBitable(tableId, nameId, locId);
+        setAutoFetched(true);
+      }
+    } catch (err) {
+      console.warn("renderFromConfig failed", err);
     }
   };
 
