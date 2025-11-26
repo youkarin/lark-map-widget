@@ -8,8 +8,13 @@ type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
 type MapPoint = { id: string; name: string; lat: number; lng: number };
 type DashboardState = "Create" | "Config" | "View" | "FullScreen" | "Unknown";
-type MapResult = { points: MapPoint[]; invalidSample?: any };
-const VERSION = "v0.0.3";
+type MapResult = {
+  points: MapPoint[];
+  invalidSample?: any;
+  total?: number;
+  invalid?: number;
+};
+const VERSION = "v0.0.4";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -130,6 +135,8 @@ export default function Home() {
               fallbackToMock: false,
               clearOnEmpty: true,
               sampleRaw: mapped.invalidSample,
+              total: mapped.total,
+              invalid: mapped.invalid,
             });
           }
         } else if (dashboard && (st === "View" || st === "FullScreen")) {
@@ -140,6 +147,8 @@ export default function Home() {
               fallbackToMock: false,
               clearOnEmpty: true,
               sampleRaw: mapped.invalidSample,
+              total: mapped.total,
+              invalid: mapped.invalid,
             });
           } catch {
             // fall back to direct read when no data
@@ -211,6 +220,8 @@ export default function Home() {
             fallbackToMock: false,
             clearOnEmpty: true,
             sampleRaw: mapped.invalidSample,
+            total: mapped.total,
+            invalid: mapped.invalid,
           });
           if (mapped.points.length) return;
         }
@@ -224,6 +235,8 @@ export default function Home() {
             fallbackToMock: false,
             clearOnEmpty: true,
             sampleRaw: mapped.invalidSample,
+            total: mapped.total,
+            invalid: mapped.invalid,
           });
           if (mapped.points.length) return;
         }
@@ -242,6 +255,7 @@ export default function Home() {
         (await table.getRecords({ pageSize: 5000 })) || {};
       const mapped: MapPoint[] = [];
       let invalidSample: any = undefined;
+      let invalidCount = 0;
 
       records.forEach((record: any, idx: number) => {
         const nameRaw = record?.fields?.[nameFieldId];
@@ -249,6 +263,7 @@ export default function Home() {
         const coords = parseLocation(locRaw);
         if (!coords) {
           if (invalidSample === undefined) invalidSample = locRaw;
+          invalidCount += 1;
           return;
         }
         mapped.push({
@@ -263,6 +278,8 @@ export default function Home() {
         fallbackToMock: false,
         clearOnEmpty: true,
         sampleRaw: invalidSample,
+        total: records.length,
+        invalid: invalidCount,
       });
     } catch (error) {
       console.error(error);
@@ -276,15 +293,25 @@ export default function Home() {
 
   const updatePoints = (
     mapped: MapPoint[],
-    opts: { fallbackToMock?: boolean; clearOnEmpty?: boolean; sampleRaw?: any } = {}
+    opts: {
+      fallbackToMock?: boolean;
+      clearOnEmpty?: boolean;
+      sampleRaw?: any;
+      total?: number;
+      invalid?: number;
+    } = {}
   ) => {
     if (!mapped || !mapped.length) {
       const extra =
         opts.sampleRaw !== undefined
           ? ` 示例原值: ${safeSample(opts.sampleRaw)}`
           : "";
+      const totalInfo =
+        opts.total !== undefined
+          ? ` | 总记录: ${opts.total}, 无效: ${opts.invalid ?? 0}`
+          : "";
       setStatus(
-        `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}`
+        `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}${totalInfo}`
       );
       if (opts.fallbackToMock) {
         setPoints(mockPoints);
@@ -295,7 +322,11 @@ export default function Home() {
       }
       return;
     }
-    setStatus(`已加载 ${mapped.length} 条位置`);
+    const totalInfo =
+      opts.total !== undefined
+        ? ` | 总记录: ${opts.total}, 无效: ${opts.invalid ?? 0}`
+        : "";
+    setStatus(`已加载 ${mapped.length} 条位置${totalInfo}`);
     setPoints(mapped);
     setUsingMock(false);
   };
@@ -555,12 +586,15 @@ function mapDashboardData(data: any): MapResult {
   if (Array.isArray(data) && Array.isArray(data[0])) {
     const mapped: MapPoint[] = [];
     let invalidSample: any = undefined;
+    let invalidCount = 0;
+    const total = Math.max(0, (data?.length || 1) - 1);
     data.slice(1).forEach((row: any[], idx: number) => {
       const name = row?.[0]?.text ?? row?.[0]?.value ?? row?.[0];
       const loc = row?.[1]?.text ?? row?.[1]?.value ?? row?.[1];
       const coords = parseLocation(loc);
       if (!coords) {
         if (invalidSample === undefined) invalidSample = loc;
+        invalidCount += 1;
         return;
       }
       mapped.push({
@@ -570,18 +604,21 @@ function mapDashboardData(data: any): MapResult {
         lng: coords.lng,
       });
     });
-    return { points: mapped, invalidSample };
+    return { points: mapped, invalidSample, total, invalid: invalidCount };
   }
 
   if (Array.isArray(data)) {
     const mapped: MapPoint[] = [];
     let invalidSample: any = undefined;
+    let invalidCount = 0;
+    const total = data.length;
     data.forEach((row: any, idx: number) => {
       const name = row?.name || row?.title || row?.[0];
       const loc = row?.location || row?.loc || row?.[1];
       const coords = parseLocation(loc);
       if (!coords) {
         if (invalidSample === undefined) invalidSample = loc;
+        invalidCount += 1;
         return;
       }
       mapped.push({
@@ -591,7 +628,7 @@ function mapDashboardData(data: any): MapResult {
         lng: coords.lng,
       });
     });
-    return { points: mapped, invalidSample };
+    return { points: mapped, invalidSample, total, invalid: invalidCount };
   }
 
   return { points: [] };
