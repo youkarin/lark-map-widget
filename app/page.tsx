@@ -84,7 +84,7 @@ export default function Home() {
           (dashboard as any).onConfigChange(async (e: any) => {
             const nextCfg = e?.data;
             setConfig(nextCfg);
-            await renderFromConfig(true);
+            await renderFromConfig();
           });
         }
 
@@ -167,7 +167,7 @@ export default function Home() {
         // 在展示态优先使用已保存配置直接读取多维表
         if (st === "View" || st === "FullScreen") {
           // 立即拉一次，确保切换/刷新后同步
-          await renderFromConfig(true);
+          await renderFromConfig();
         } else if (
           initialTableId &&
           initialNameField &&
@@ -221,11 +221,11 @@ export default function Home() {
       const locId = selectedLocField || locationFieldId;
       if (tableId && nameId && locId) {
         // 立即拉一次
-        fetchFromBitable(tableId, nameId, locId);
+        fetchFromBitable(tableId, nameId, locId, { preserveOnEmpty: true });
         // 启动轮询
         if (refreshTimer.current) clearInterval(refreshTimer.current);
         refreshTimer.current = setInterval(() => {
-          fetchFromBitable(tableId, nameId, locId);
+          fetchFromBitable(tableId, nameId, locId, { preserveOnEmpty: true });
         }, 30000); // 30s 轮询
       }
     } else {
@@ -353,9 +353,13 @@ export default function Home() {
       sampleRaw?: any;
       total?: number;
       invalid?: number;
-    } = {}
+    } = {},
+    preserveOnEmpty?: boolean
   ) => {
     if (!mapped || !mapped.length) {
+      if (preserveOnEmpty) {
+        return;
+      }
       const extra =
         opts.sampleRaw !== undefined
           ? ` 示例原值: ${safeSample(opts.sampleRaw)}`
@@ -385,11 +389,15 @@ export default function Home() {
   };
 
   const fetchFromBitable = async (
-    tableId: string,
-    nameField: string,
-    locationField: string
+    tableId?: string,
+    nameField?: string,
+    locationField?: string,
+    opts: { preserveOnEmpty?: boolean } = {}
   ) => {
     try {
+      if (!tableId || !nameField || !locationField) {
+        return;
+      }
       const b = bitableRef.current || bitable;
       const table =
         (b as any)?.base?.getTableById
@@ -418,13 +426,17 @@ export default function Home() {
         });
       });
 
-      updatePoints(mapped, {
-        fallbackToMock: false,
-        clearOnEmpty: true,
-        sampleRaw: invalidSample,
-        total: records.length,
-        invalid: invalidCount,
-      });
+      updatePoints(
+        mapped,
+        {
+          fallbackToMock: false,
+          clearOnEmpty: !opts.preserveOnEmpty,
+          sampleRaw: invalidSample,
+          total: records.length,
+          invalid: invalidCount,
+        },
+        opts.preserveOnEmpty
+      );
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -433,7 +445,7 @@ export default function Home() {
     }
   };
 
-  const renderFromConfig = async (forceImmediate?: boolean) => {
+  const renderFromConfig = async () => {
     try {
       const dash = dashboardRef.current;
       const cfg: any = await dash?.getConfig?.();
@@ -478,39 +490,41 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-slate-50 px-6 py-10 text-slate-800">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        <header className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
-              Feishu Dashboard Widget
-            </p>
-            <h1 className="text-3xl font-semibold text-slate-900">
-              多维表门店分布地图
-            </h1>
-            <p className="text-sm text-slate-500">
-              选择名称字段 + 经纬度字段，自动在 Leaflet 地图上打点。
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={`rounded-full px-3 py-1 text-sm font-medium ${
-                sdkReady && !usingMock
-                  ? "bg-blue-100 text-blue-700"
-                  : "bg-slate-100 text-slate-600"
-              }`}
-            >
-              {sdkReady && !usingMock ? "飞书多维表已连接" : "示例模式"}
-            </span>
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Leaflet · 蓝色主题
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-              仪表盘状态：{dashboardState}
-            </span>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-              版本：{VERSION}
-            </span>
-          </div>
-        </header>
+        {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+          <header className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
+                Feishu Dashboard Widget
+              </p>
+              <h1 className="text-3xl font-semibold text-slate-900">
+                多维表门店分布地图
+              </h1>
+              <p className="text-sm text-slate-500">
+                选择名称字段 + 经纬度字段，自动在 Leaflet 地图上打点。
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`rounded-full px-3 py-1 text-sm font-medium ${
+                  sdkReady && !usingMock
+                    ? "bg-blue-100 text-blue-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {sdkReady && !usingMock ? "飞书多维表已连接" : "示例模式"}
+              </span>
+              <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                Leaflet · 蓝色主题
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                仪表盘状态：{dashboardState}
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                版本：{VERSION}
+              </span>
+            </div>
+          </header>
+        )}
 
         {/* 配置面板在仪表盘 View/FullScreen 隐藏 */}
         {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
@@ -646,26 +660,30 @@ export default function Home() {
         )}
 
         <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">门店地图</h2>
-              <p className="text-xs text-slate-500">
-                点亮地图后，点击图钉可查看店名与经纬度。
-              </p>
+          {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">门店地图</h2>
+                <p className="text-xs text-slate-500">
+                  点亮地图后，点击图钉可查看店名与经纬度。
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                {usingMock ? "示例数据" : "实时数据"}
+              </span>
             </div>
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-              {usingMock ? "示例数据" : "实时数据"}
-            </span>
-          </div>
+          )}
 
           <LeafletMap points={activePoints} />
 
-          <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            <span className="font-medium">{status}</span>
-            <span className="text-xs">
-              未显示点？检查经纬度字段格式，或切换示例数据进行预览。
-            </span>
-          </div>
+          {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+            <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              <span className="font-medium">{status}</span>
+              <span className="text-xs">
+                未显示点？检查经纬度字段格式，或切换示例数据进行预览。
+              </span>
+            </div>
+          )}
         </section>
       </div>
     </div>
