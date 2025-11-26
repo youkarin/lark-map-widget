@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.11";
+const VERSION = "v0.0.12";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -255,7 +255,7 @@ export default function Home() {
     setStatus("正在从多维表读取数据…");
     try {
       const dash = dashboardRef.current;
-      // Prefer dashboard-provided data in Create/Config (preview) and View (正式数据)
+      // Prefer dashboard-provided data in Create/Config (preview only)
       if (dash) {
         if (
           typeof dash.getPreviewData === "function" &&
@@ -272,7 +272,6 @@ export default function Home() {
             invalid: mapped.invalid,
           });
           if (mapped.points.length) {
-            await autoSaveConfig();
             return;
           }
         }
@@ -290,7 +289,10 @@ export default function Home() {
         nameFieldId,
         locationFieldId
       );
-      await autoSaveConfig();
+      // 只在展示态自动保存配置，避免配置态弹回
+      if (dashboardState === "View" || dashboardState === "FullScreen") {
+        await autoSaveConfig(selectedTableId, nameFieldId, locationFieldId);
+      }
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
