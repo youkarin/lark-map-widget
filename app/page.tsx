@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.7";
+const VERSION = "v0.0.8";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -140,47 +140,11 @@ export default function Home() {
               invalid: mapped.invalid,
             });
           }
-        } else if (dashboard && (st === "View" || st === "FullScreen")) {
-          try {
-            const data: any = await dashboard.getData?.();
-            const mapped = mapDashboardData((data as any)?.data ?? data);
-            updatePoints(mapped.points, {
-              fallbackToMock: false,
-              clearOnEmpty: true,
-              sampleRaw: mapped.invalidSample,
-              total: mapped.total,
-              invalid: mapped.invalid,
-            });
-            if (
-              !mapped.points.length &&
-              initialTableId &&
-              initialNameField &&
-              initialLocField &&
-              !autoFetched
-            ) {
-              await fetchFromBitable(
-                initialTableId,
-                initialNameField,
-                initialLocField
-              );
-              setAutoFetched(true);
-            }
-          } catch {
-            if (
-              initialTableId &&
-              initialNameField &&
-              initialLocField &&
-              !autoFetched
-            ) {
-              await fetchFromBitable(
-                initialTableId,
-                initialNameField,
-                initialLocField
-              );
-              setAutoFetched(true);
-            }
-          }
-        } else if (
+        }
+
+        // 在展示态优先直接读取多维表，避免 getData 聚合带来的格式问题
+        if (
+          (st === "View" || st === "FullScreen" || st === "Config") &&
           initialTableId &&
           initialNameField &&
           initialLocField &&
@@ -255,21 +219,6 @@ export default function Home() {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview);
-          updatePoints(mapped.points, {
-            fallbackToMock: false,
-            clearOnEmpty: true,
-            sampleRaw: mapped.invalidSample,
-            total: mapped.total,
-            invalid: mapped.invalid,
-          });
-          if (mapped.points.length) return;
-        }
-        if (
-          typeof dash.getData === "function" &&
-          (dashboardState === "View" || dashboardState === "FullScreen")
-        ) {
-          const data: any = await dash.getData();
-          const mapped = mapDashboardData((data as any)?.data ?? data);
           updatePoints(mapped.points, {
             fallbackToMock: false,
             clearOnEmpty: true,
