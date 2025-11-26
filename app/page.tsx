@@ -301,7 +301,7 @@ export default function Home() {
           ? ` | 总记录: ${opts.total}, 无效: ${opts.invalid ?? 0}`
           : "";
       setStatus(
-        `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}${totalInfo}`
+        `未解析到有效经纬度，请检查字段格式（如 12345）。${extra}${totalInfo}`
       );
       if (opts.fallbackToMock) {
         setPoints(mockPoints);
