@@ -82,10 +82,15 @@ export default function Home() {
         if ((dashboard as any)?.onDataChange) {
           (dashboard as any).onDataChange(async (e: any) => {
             const mapped = mapDashboardData(e?.data);
-            updatePoints(mapped.points, {
-              clearOnEmpty: true,
-              sampleRaw: mapped.invalidSample,
-            });
+            // 在展示态常会收到空聚合，这里仅在有有效点时更新
+            if (mapped.points.length) {
+              updatePoints(mapped.points, {
+                clearOnEmpty: true,
+                sampleRaw: mapped.invalidSample,
+                total: mapped.total,
+                invalid: mapped.invalid,
+              });
+            }
           });
         }
 
@@ -297,8 +302,8 @@ export default function Home() {
           ? ` 示例原值: ${safeSample(opts.sampleRaw)}`
           : "";
       const totalInfo =
-        opts.total !== undefined
-          ? ` | 总记录: ${opts.total}, 无效: ${opts.invalid ?? 0}`
+        opts.total !== undefined || opts.invalid !== undefined
+          ? ` | 总记录: ${opts.total ?? 0}, 无效: ${opts.invalid ?? 0}`
           : "";
       setStatus(
         `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}${totalInfo}`
@@ -312,10 +317,9 @@ export default function Home() {
       }
       return;
     }
-    const totalInfo =
-      opts.total !== undefined
-        ? ` | 总记录: ${opts.total}, 无效: ${opts.invalid ?? 0}`
-        : "";
+    const totalVal = opts.total ?? mapped.length;
+    const invalidVal = opts.invalid ?? 0;
+    const totalInfo = ` | 总记录: ${totalVal}, 无效: ${invalidVal}`;
     setStatus(`已加载 ${mapped.length} 条位置${totalInfo}`);
     setPoints(mapped);
     setUsingMock(false);
