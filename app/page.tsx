@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.8";
+const VERSION = "v0.0.9";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -51,6 +51,8 @@ export default function Home() {
   const [dashboardState, setDashboardState] = useState<DashboardState>("Unknown");
   const [config, setConfig] = useState<any | null>(null);
   const [autoFetched, setAutoFetched] = useState(false);
+  const [selectedNameField, setSelectedNameField] = useState<string>("");
+  const [selectedLocField, setSelectedLocField] = useState<string>("");
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -118,8 +120,14 @@ export default function Home() {
           setSelectedTableId(initialTableId);
           await loadFields(initialTableId, bitable);
         }
-        if (initialNameField) setNameFieldId(initialNameField);
-        if (initialLocField) setLocationFieldId(initialLocField);
+        if (initialNameField) {
+          setNameFieldId(initialNameField);
+          setSelectedNameField(initialNameField);
+        }
+        if (initialLocField) {
+          setLocationFieldId(initialLocField);
+          setSelectedLocField(initialLocField);
+        }
 
         if (
           dashboard &&
@@ -144,7 +152,7 @@ export default function Home() {
 
         // 在展示态优先直接读取多维表，避免 getData 聚合带来的格式问题
         if (
-          (st === "View" || st === "FullScreen" || st === "Config") &&
+          (st === "View" || st === "FullScreen") &&
           initialTableId &&
           initialNameField &&
           initialLocField &&
@@ -298,7 +306,11 @@ export default function Home() {
     locationField: string
   ) => {
     try {
-      const table = await base.getTableById(tableId);
+      const b = bitableRef.current || bitable;
+      const table =
+        (b as any)?.base?.getTableById
+          ? await (b as any).base.getTableById(tableId)
+          : await base.getTableById(tableId);
       const { records = [] } =
         (await table.getRecords({ pageSize: 5000 })) || {};
       const mapped: MapPoint[] = [];
@@ -411,6 +423,7 @@ export default function Home() {
             <select
               value={nameFieldId}
               onChange={(e) => setNameFieldId(e.target.value)}
+              onBlur={(e) => setSelectedNameField(e.target.value)}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
               <option value="">请选择</option>
@@ -429,6 +442,7 @@ export default function Home() {
             <select
               value={locationFieldId}
               onChange={(e) => setLocationFieldId(e.target.value)}
+              onBlur={(e) => setSelectedLocField(e.target.value)}
               className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
             >
               <option value="">请选择</option>
