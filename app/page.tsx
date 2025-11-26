@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.14";
+const VERSION = "v0.0.15";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -84,7 +84,7 @@ export default function Home() {
           (dashboard as any).onConfigChange(async (e: any) => {
             const nextCfg = e?.data;
             setConfig(nextCfg);
-            await renderFromConfig();
+            await renderFromConfig(true);
           });
         }
 
@@ -166,7 +166,8 @@ export default function Home() {
 
         // 在展示态优先使用已保存配置直接读取多维表
         if (st === "View" || st === "FullScreen") {
-          await renderFromConfig();
+          // 立即拉一次，确保切换/刷新后同步
+          await renderFromConfig(true);
         } else if (
           initialTableId &&
           initialNameField &&
@@ -432,7 +433,7 @@ export default function Home() {
     }
   };
 
-  const renderFromConfig = async () => {
+  const renderFromConfig = async (forceImmediate?: boolean) => {
     try {
       const dash = dashboardRef.current;
       const cfg: any = await dash?.getConfig?.();
@@ -511,6 +512,7 @@ export default function Home() {
           </div>
         </header>
 
+        {/* 配置面板在仪表盘 View/FullScreen 隐藏 */}
         {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
           <section className="grid grid-cols-1 gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 md:grid-cols-3">
             <div className="flex flex-col gap-2">
@@ -534,64 +536,64 @@ export default function Home() {
                 }}
                 className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               >
-              <option value="">
-                {sdkReady ? "请选择表" : "等待飞书环境 / 使用示例"}
-              </option>
-              {tableOptions.map((table) => (
-                <option key={table.id} value={table.id}>
-                  {table.name}
+                <option value="">
+                  {sdkReady ? "请选择表" : "等待飞书环境 / 使用示例"}
                 </option>
-              ))}
-            </select>
-          </div>
+                {tableOptions.map((table) => (
+                  <option key={table.id} value={table.id}>
+                    {table.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-700">
-              名称字段（店名）
-            </label>
-            <select
-              value={nameFieldId}
-              onChange={async (e) => {
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-slate-700">
+                名称字段（店名）
+              </label>
+              <select
+                value={nameFieldId}
+                onChange={async (e) => {
                   const next = e.target.value;
                   setNameFieldId(next);
                   setSelectedNameField(next);
                   setAutoFetched(false);
                   await autoSaveConfig(selectedTableId, next, selectedLocField);
-              }}
-              className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="">请选择</option>
-              {fieldOptions.map((field) => (
-                <option key={field.id} value={field.id}>
-                  {field.name}
-                </option>
-              ))}
-            </select>
-          </div>
+                }}
+                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">请选择</option>
+                {fieldOptions.map((field) => (
+                  <option key={field.id} value={field.id}>
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-700">
-              经纬度字段（单列，示例：31.2,121.5）
-            </label>
-            <select
-              value={locationFieldId}
-              onChange={async (e) => {
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-slate-700">
+                经纬度字段（单列，示例：31.2,121.5）
+              </label>
+              <select
+                value={locationFieldId}
+                onChange={async (e) => {
                   const next = e.target.value;
                   setLocationFieldId(next);
                   setSelectedLocField(next);
                   setAutoFetched(false);
                   await autoSaveConfig(selectedTableId, selectedNameField, next);
-              }}
-              className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-            >
-              <option value="">请选择</option>
-              {fieldOptions.map((field) => (
-                <option key={field.id} value={field.id}>
-                  {field.name}
-                </option>
-              ))}
-            </select>
-          </div>
+                }}
+                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">请选择</option>
+                {fieldOptions.map((field) => (
+                  <option key={field.id} value={field.id}>
+                    {field.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div className="flex items-center gap-3 md:col-span-3">
               <button
@@ -631,10 +633,10 @@ export default function Home() {
                   setPoints(mockPoints);
                   setUsingMock(true);
                   setStatus("已切换到示例数据");
-              }}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
-            >
-              使用示例数据
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700"
+              >
+                使用示例数据
               </button>
               <p className="text-xs text-slate-500">
                 经纬度支持字符串“lat,lng”或位置对象（包含 latitude / longitude）。
