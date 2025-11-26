@@ -14,7 +14,7 @@ type MapResult = {
   total?: number;
   invalid?: number;
 };
-const VERSION = "v0.0.15";
+const VERSION = "v0.0.16";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -209,6 +209,14 @@ export default function Home() {
     Boolean(selectedTableId) && Boolean(nameFieldId) && Boolean(locationFieldId);
 
   const activePoints = useMemo(() => points, [points]);
+  const isDashboardView =
+    dashboardState === "View" || dashboardState === "FullScreen";
+  const outerClass = isDashboardView
+    ? "min-h-screen w-full bg-white"
+    : "min-h-screen bg-gradient-to-b from-blue-50 via-white to-slate-50 px-6 py-10 text-slate-800";
+  const wrapperClass = isDashboardView
+    ? "mx-auto flex w-full flex-col gap-4"
+    : "mx-auto flex w-full max-w-6xl flex-col gap-6";
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
@@ -488,9 +496,9 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-slate-50 px-6 py-10 text-slate-800">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-        {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+    <div className={outerClass}>
+      <div className={wrapperClass}>
+        {isDashboardView ? null : (
           <header className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
             <div>
               <p className="text-sm font-medium uppercase tracking-wide text-blue-600">
@@ -527,7 +535,7 @@ export default function Home() {
         )}
 
         {/* 配置面板在仪表盘 View/FullScreen 隐藏 */}
-        {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+        {isDashboardView ? null : (
           <section className="grid grid-cols-1 gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 md:grid-cols-3">
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-slate-700">
@@ -660,7 +668,7 @@ export default function Home() {
         )}
 
         <section className="flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
-          {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+          {isDashboardView ? null : (
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">门店地图</h2>
@@ -674,9 +682,9 @@ export default function Home() {
             </div>
           )}
 
-          <LeafletMap points={activePoints} />
+          <LeafletMap points={activePoints} compact={isDashboardView} />
 
-          {dashboardState === "View" || dashboardState === "FullScreen" ? null : (
+          {isDashboardView ? null : (
             <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
               <span className="font-medium">{status}</span>
               <span className="text-xs">

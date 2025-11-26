@@ -24,10 +24,12 @@ export function LeafletMap({
   points,
   zoom = 6,
   height = 520,
+  compact = false,
 }: {
   points: MapPoint[];
   zoom?: number;
   height?: number;
+  compact?: boolean;
 }) {
   useEffect(() => {
     L.Marker.prototype.options.icon = defaultIcon;
@@ -43,7 +45,11 @@ export function LeafletMap({
 
   return (
     <div
-      className="overflow-hidden rounded-2xl border border-blue-100 shadow-md"
+      className={
+        compact
+          ? "h-full w-full"
+          : "overflow-hidden rounded-2xl border border-blue-100 shadow-md"
+      }
       style={{ height }}
     >
       <MapContainer
