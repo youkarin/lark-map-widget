@@ -8,7 +8,8 @@ type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
 type MapPoint = { id: string; name: string; lat: number; lng: number };
 type DashboardState = "Create" | "Config" | "View" | "FullScreen" | "Unknown";
-const VERSION = "v0.0.2";
+type MapResult = { points: MapPoint[]; invalidSample?: any };
+const VERSION = "v0.0.3";
 
 const LeafletMap = dynamic(
   () => import("./components/LeafletMap").then((m) => m.LeafletMap),
@@ -73,7 +74,10 @@ export default function Home() {
         if ((dashboard as any)?.onDataChange) {
           (dashboard as any).onDataChange(async (e: any) => {
             const mapped = mapDashboardData(e?.data);
-            updatePoints(mapped);
+            updatePoints(mapped.points, {
+              clearOnEmpty: true,
+              sampleRaw: mapped.invalidSample,
+            });
           });
         }
 
@@ -122,13 +126,21 @@ export default function Home() {
           if (dc) {
             const preview = await (dashboard as any).getPreviewData(dc as any);
             const mapped = mapDashboardData(preview?.data ?? preview);
-            updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
+            updatePoints(mapped.points, {
+              fallbackToMock: false,
+              clearOnEmpty: true,
+              sampleRaw: mapped.invalidSample,
+            });
           }
         } else if (dashboard && (st === "View" || st === "FullScreen")) {
           try {
             const data: any = await dashboard.getData?.();
             const mapped = mapDashboardData((data as any)?.data ?? data);
-            updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
+            updatePoints(mapped.points, {
+              fallbackToMock: false,
+              clearOnEmpty: true,
+              sampleRaw: mapped.invalidSample,
+            });
           } catch {
             // fall back to direct read when no data
           }
@@ -195,8 +207,12 @@ export default function Home() {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview);
-          updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
-          if (mapped.length) return;
+          updatePoints(mapped.points, {
+            fallbackToMock: false,
+            clearOnEmpty: true,
+            sampleRaw: mapped.invalidSample,
+          });
+          if (mapped.points.length) return;
         }
         if (
           typeof dash.getData === "function" &&
@@ -204,8 +220,12 @@ export default function Home() {
         ) {
           const data: any = await dash.getData();
           const mapped = mapDashboardData((data as any)?.data ?? data);
-          updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
-          if (mapped.length) return;
+          updatePoints(mapped.points, {
+            fallbackToMock: false,
+            clearOnEmpty: true,
+            sampleRaw: mapped.invalidSample,
+          });
+          if (mapped.points.length) return;
         }
       }
 
@@ -221,12 +241,14 @@ export default function Home() {
       const { records = [] } =
         (await table.getRecords({ pageSize: 5000 })) || {};
       const mapped: MapPoint[] = [];
+      let invalidSample: any = undefined;
 
       records.forEach((record: any, idx: number) => {
         const nameRaw = record?.fields?.[nameFieldId];
         const locRaw = record?.fields?.[locationFieldId];
         const coords = parseLocation(locRaw);
         if (!coords) {
+          if (invalidSample === undefined) invalidSample = locRaw;
           return;
         }
         mapped.push({
@@ -237,7 +259,11 @@ export default function Home() {
         });
       });
 
-      updatePoints(mapped, { fallbackToMock: false, clearOnEmpty: true });
+      updatePoints(mapped, {
+        fallbackToMock: false,
+        clearOnEmpty: true,
+        sampleRaw: invalidSample,
+      });
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -250,10 +276,16 @@ export default function Home() {
 
   const updatePoints = (
     mapped: MapPoint[],
-    opts: { fallbackToMock?: boolean; clearOnEmpty?: boolean } = {}
+    opts: { fallbackToMock?: boolean; clearOnEmpty?: boolean; sampleRaw?: any } = {}
   ) => {
     if (!mapped || !mapped.length) {
-      setStatus("未解析到有效经纬度，请检查字段格式（如 31.2,121.5）");
+      const extra =
+        opts.sampleRaw !== undefined
+          ? ` 示例原值: ${safeSample(opts.sampleRaw)}`
+          : "";
+      setStatus(
+        `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}`
+      );
       if (opts.fallbackToMock) {
         setPoints(mockPoints);
         setUsingMock(true);
@@ -516,17 +548,21 @@ function getCellText(raw: unknown): string {
   }
 }
 
-function mapDashboardData(data: any): MapPoint[] {
-  if (!data) return [];
+function mapDashboardData(data: any): MapResult {
+  if (!data) return { points: [] };
 
   // IData: IDataItem[][] from dashboard getData / getPreviewData
   if (Array.isArray(data) && Array.isArray(data[0])) {
     const mapped: MapPoint[] = [];
+    let invalidSample: any = undefined;
     data.slice(1).forEach((row: any[], idx: number) => {
       const name = row?.[0]?.text ?? row?.[0]?.value ?? row?.[0];
       const loc = row?.[1]?.text ?? row?.[1]?.value ?? row?.[1];
       const coords = parseLocation(loc);
-      if (!coords) return;
+      if (!coords) {
+        if (invalidSample === undefined) invalidSample = loc;
+        return;
+      }
       mapped.push({
         id: String(idx),
         name: getCellText(name) || "未命名",
@@ -534,16 +570,20 @@ function mapDashboardData(data: any): MapPoint[] {
         lng: coords.lng,
       });
     });
-    return mapped;
+    return { points: mapped, invalidSample };
   }
 
   if (Array.isArray(data)) {
     const mapped: MapPoint[] = [];
+    let invalidSample: any = undefined;
     data.forEach((row: any, idx: number) => {
       const name = row?.name || row?.title || row?.[0];
       const loc = row?.location || row?.loc || row?.[1];
       const coords = parseLocation(loc);
-      if (!coords) return;
+      if (!coords) {
+        if (invalidSample === undefined) invalidSample = loc;
+        return;
+      }
       mapped.push({
         id: row?.id || String(idx),
         name: getCellText(name) || "未命名",
@@ -551,10 +591,10 @@ function mapDashboardData(data: any): MapPoint[] {
         lng: coords.lng,
       });
     });
-    return mapped;
+    return { points: mapped, invalidSample };
   }
 
-  return [];
+  return { points: [] };
 }
 
 function deriveDataConditions(cfg: any, tableId: string) {
@@ -577,5 +617,14 @@ async function bridgeReady(obj: any) {
     } catch {
       // ignore
     }
+  }
+}
+
+function safeSample(raw: any) {
+  try {
+    if (typeof raw === "string" || typeof raw === "number") return String(raw);
+    return JSON.stringify(raw);
+  } catch {
+    return String(raw);
   }
 }
