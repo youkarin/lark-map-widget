@@ -54,6 +54,7 @@ export default function Home() {
   const [selectedNameField, setSelectedNameField] = useState<string>("");
   const [selectedLocField, setSelectedLocField] = useState<string>("");
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
+  const initialRefreshTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -202,6 +203,10 @@ export default function Home() {
         clearInterval(refreshTimer.current);
         refreshTimer.current = null;
       }
+      if (initialRefreshTimer.current) {
+        clearTimeout(initialRefreshTimer.current);
+        initialRefreshTimer.current = null;
+      }
     };
   }, []);
 
@@ -220,26 +225,36 @@ export default function Home() {
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
-    if (
-      dashboardState === "View" ||
-      dashboardState === "FullScreen"
-    ) {
+    if (dashboardState === "View" || dashboardState === "FullScreen") {
       const tableId = selectedTableId;
       const nameId = selectedNameField || nameFieldId;
       const locId = selectedLocField || locationFieldId;
       if (tableId && nameId && locId) {
-        // 立即拉一次
-        fetchFromBitable(tableId, nameId, locId, { preserveOnEmpty: true });
-        // 启动轮询
-        if (refreshTimer.current) clearInterval(refreshTimer.current);
-        refreshTimer.current = setInterval(() => {
+        const doFetch = () =>
           fetchFromBitable(tableId, nameId, locId, { preserveOnEmpty: true });
-        }, 30000); // 30s 轮询
+        if (initialRefreshTimer.current) {
+          clearTimeout(initialRefreshTimer.current);
+          initialRefreshTimer.current = null;
+        }
+        if (refreshTimer.current) {
+          clearInterval(refreshTimer.current);
+          refreshTimer.current = null;
+        }
+        initialRefreshTimer.current = setTimeout(() => {
+          doFetch();
+          refreshTimer.current = setInterval(() => {
+            doFetch();
+          }, 30000); // 30s 轮询
+        }, 5000); // 首次延迟 5s
       }
     } else {
       if (refreshTimer.current) {
         clearInterval(refreshTimer.current);
         refreshTimer.current = null;
+      }
+      if (initialRefreshTimer.current) {
+        clearTimeout(initialRefreshTimer.current);
+        initialRefreshTimer.current = null;
       }
     }
   }, [
