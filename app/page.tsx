@@ -13,6 +13,13 @@ type ExclusionConfig = {
   operator: ExclusionOperator;
   value?: string;
 };
+type WidgetConfig = {
+  tableId: string;
+  nameFieldId: string;
+  locationFieldId: string;
+  defaultCenter: [number, number];
+  exclusion?: ExclusionConfig;
+};
 type ExclusionOperator =
   | "contains"
   | "notContains"
@@ -81,17 +88,11 @@ export default function Home() {
   const dashboardRef = useRef<typeof dashboard | null>(null);
   const [dashboardState, setDashboardState] = useState<DashboardState>("Unknown");
   const [config, setConfig] = useState<any | null>(null);
-  const [autoFetched, setAutoFetched] = useState(false);
-  const [selectedNameField, setSelectedNameField] = useState<string>("");
-  const [selectedLocField, setSelectedLocField] = useState<string>("");
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
   const initialRefreshTimer = useRef<NodeJS.Timeout | null>(null);
-  const selectedTableIdRef = useRef<string>("");
-  const nameFieldIdRef = useRef<string>("");
-  const locationFieldIdRef = useRef<string>("");
   const exclusionRef = useRef<ExclusionConfig | undefined>(undefined);
-  const applyingConfigRef = useRef(false);
-  const lastSavedExclusionSignature = useRef<string>("");
+  const [appliedConfig, setAppliedConfig] = useState<WidgetConfig | null>(null);
+  const appliedConfigRef = useRef<WidgetConfig | null>(null);
   const [defaultCenter, setDefaultCenter] = useState<[number, number]>(DEFAULT_CENTER);
   const [centerPresetId, setCenterPresetId] = useState<string>(CENTER_PRESETS[0].id);
   const [customCenterInput, setCustomCenterInput] = useState<{ lat: string; lng: string }>({
@@ -103,15 +104,12 @@ export default function Home() {
   const [excludeValue, setExcludeValue] = useState<string>("");
 
   const updateSelectedTableId = (value: string) => {
-    selectedTableIdRef.current = value;
     setSelectedTableIdState(value);
   };
   const updateNameFieldId = (value: string) => {
-    nameFieldIdRef.current = value;
     setNameFieldIdState(value);
   };
   const updateLocationFieldId = (value: string) => {
-    locationFieldIdRef.current = value;
     setLocationFieldIdState(value);
   };
 
@@ -132,7 +130,6 @@ export default function Home() {
           (dashboard as any).onStateChange(async (next: DashboardState) => {
             setDashboardState(next ?? "Unknown");
             if (next === "Config" || next === "Create") {
-              setAutoFetched(false);
               if (next === "Config") {
                 await renderFromConfig();
               }
@@ -206,72 +203,12 @@ export default function Home() {
         }
         if (initialNameField) {
           updateNameFieldId(initialNameField);
-          setSelectedNameField(initialNameField);
         }
         if (initialLocField) {
           updateLocationFieldId(initialLocField);
-          setSelectedLocField(initialLocField);
         }
 
-        if (
-          dashboard &&
-          (st === "Create" || st === "Config") &&
-          (dashboard as any)?.getPreviewData
-        ) {
-          const dc = normalizeDataConditions(
-            config?.dataConditions ?? [{ tableId: initialTableId }]
-          );
-          const previewTableId = dc?.tableId || initialTableId;
-          if (dc) {
-            const preview = await (dashboard as any).getPreviewData(dc as any);
-            const mapped = mapDashboardData(
-              preview?.data ?? preview,
-              exclusionRef.current
-            );
-            const shouldSkipPreview = Boolean(
-              exclusionRef.current && !mapped.excluded && mapped.points.length
-            );
-            if (!shouldSkipPreview) {
-              updatePoints(mapped.points, {
-                fallbackToMock: false,
-                clearOnEmpty: true,
-                sampleRaw: mapped.invalidSample,
-                total: mapped.total,
-                invalid: mapped.invalid,
-                excluded: mapped.excluded,
-              });
-            }
-            if (exclusionRef.current && previewTableId) {
-              const previewName =
-                nameFieldIdRef.current || initialNameField || nameFieldId;
-              const previewLoc =
-                locationFieldIdRef.current || initialLocField || locationFieldId;
-              if (previewName && previewLoc) {
-                await fetchFromBitable(previewTableId, previewName, previewLoc, {
-                  preserveOnEmpty: true,
-                });
-              }
-            }
-          }
-        }
-
-        // 在展示态优先使用已保存配置直接读取多维表
-        if (st === "View" || st === "FullScreen") {
-          // 立即拉一次，确保切换/刷新后同步
-          await renderFromConfig();
-        } else if (
-          initialTableId &&
-          initialNameField &&
-          initialLocField &&
-          !autoFetched
-        ) {
-          await fetchFromBitable(
-            initialTableId,
-            initialNameField,
-            initialLocField
-          );
-          setAutoFetched(true);
-        }
+        await renderFromConfig();
 
         setSdkReady(true);
         setUsingMock(false);
@@ -317,47 +254,21 @@ export default function Home() {
     [excludeOperator]
   );
   const exclusionNeedsValue = exclusionOperatorMeta?.requiresValue ?? false;
-  const activeExclusion = useMemo(
-    () => buildExclusionConfig(excludeFieldId, excludeOperator, excludeValue),
-    [excludeFieldId, excludeOperator, excludeValue]
-  );
   useEffect(() => {
-    exclusionRef.current = activeExclusion;
-  }, [activeExclusion]);
+    exclusionRef.current = appliedConfig?.exclusion;
+  }, [appliedConfig]);
 
-  useEffect(() => {
-    if (applyingConfigRef.current) return;
-    const tableId = selectedTableIdRef.current || selectedTableId;
-    if (!tableId) return;
-    const nameId =
-      nameFieldIdRef.current || selectedNameField || nameFieldId;
-    const locId =
-      locationFieldIdRef.current || selectedLocField || locationFieldId;
-    const override = buildExclusionConfig(
-      excludeFieldId,
-      excludeOperator,
-      excludeValue
-    );
-    const key = makeExclusionSignature(tableId, nameId, locId, override ?? null);
-    if (lastSavedExclusionSignature.current === key) {
-      return;
-    }
-    lastSavedExclusionSignature.current = key;
-    const persist = async () => {
-      await autoSaveConfig(tableId, nameId, locId, undefined, override ?? null);
-    };
-    persist().catch((err) => console.warn("auto-save exclusion failed", err));
-  }, [excludeFieldId, excludeOperator, excludeValue]);
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
     if (dashboardState === "View" || dashboardState === "FullScreen") {
-      const tableId = selectedTableId;
-      const nameId = selectedNameField || nameFieldId;
-      const locId = selectedLocField || locationFieldId;
-      if (tableId && nameId && locId) {
+      const cfg = appliedConfigRef.current || appliedConfig;
+      if (cfg?.tableId && cfg.nameFieldId && cfg.locationFieldId) {
         const doFetch = () =>
-          fetchFromBitable(tableId, nameId, locId, { preserveOnEmpty: true });
+          fetchFromBitable(cfg.tableId, cfg.nameFieldId, cfg.locationFieldId, {
+            preserveOnEmpty: true,
+            exclusion: cfg.exclusion ?? null,
+          });
         if (initialRefreshTimer.current) {
           clearTimeout(initialRefreshTimer.current);
           initialRefreshTimer.current = null;
@@ -383,14 +294,7 @@ export default function Home() {
         initialRefreshTimer.current = null;
       }
     }
-  }, [
-    dashboardState,
-    selectedTableId,
-    selectedNameField,
-    selectedLocField,
-    nameFieldId,
-    locationFieldId,
-  ]);
+  }, [dashboardState, appliedConfig]);
 
   useEffect(() => {
     if (centerPresetId !== "custom") return;
@@ -443,56 +347,51 @@ export default function Home() {
     }
   };
 
+  const buildConfigFromForm = (): WidgetConfig | null => {
+    if (!selectedTableId || !nameFieldId || !locationFieldId) {
+      return null;
+    }
+    const center = resolveCenterToPersist();
+    const exclusion = buildExclusionConfig(
+      excludeFieldId,
+      excludeOperator,
+      excludeValue
+    );
+    return {
+      tableId: selectedTableId,
+      nameFieldId,
+      locationFieldId,
+      defaultCenter: center,
+      exclusion,
+    };
+  };
+
   const refreshWithCurrentConfig = async (
     opts: { preserveOnEmpty?: boolean } = {}
   ) => {
-    const tableId = selectedTableIdRef.current || selectedTableId;
-    const nameId =
-      nameFieldIdRef.current || selectedNameField || nameFieldId;
-    const locId =
-      locationFieldIdRef.current || selectedLocField || locationFieldId;
-    if (tableId && nameId && locId) {
-      await fetchFromBitable(tableId, nameId, locId, opts);
+    const cfg = appliedConfigRef.current;
+    if (cfg) {
+      await fetchFromBitable(cfg.tableId, cfg.nameFieldId, cfg.locationFieldId, {
+        ...opts,
+        exclusion: cfg.exclusion ?? null,
+      });
       return true;
     }
     return false;
   };
 
-
-  const fetchRecords = async () => {
-    if (!isReadyToQuery) {
-      setStatus("请先选择表与字段");
+  const applyCurrentForm = async () => {
+    const cfg = buildConfigFromForm();
+    if (!cfg) {
+      setStatus("请先选择多维表与字段");
       return;
     }
     setLoading(true);
-    setStatus("正在从多维表读取数据…");
+    setStatus("应用配置并读取数据…");
     try {
-      const dash = dashboardRef.current;
-      // Prefer dashboard-provided data in Create/Config (preview only)
-      if (dash) {
-        if (
-          typeof dash.getPreviewData === "function" &&
-          (dashboardState === "Create" || dashboardState === "Config")
-        ) {
-          const dc = deriveDataConditions(config, selectedTableId);
-          const preview: any = await dash.getPreviewData(dc as any);
-          const mapped = mapDashboardData(preview?.data ?? preview, activeExclusion);
-          if (!activeExclusion) {
-            updatePoints(mapped.points, {
-              fallbackToMock: false,
-              clearOnEmpty: true,
-              sampleRaw: mapped.invalidSample,
-              total: mapped.total,
-              invalid: mapped.invalid,
-              excluded: mapped.excluded,
-            });
-            if (mapped.points.length) {
-              return;
-            }
-          }
-        }
-      }
-
+      appliedConfigRef.current = cfg;
+      setAppliedConfig(cfg);
+      exclusionRef.current = cfg.exclusion;
       if (!bitableRef.current) {
         setStatus("未找到 Bitable SDK，使用示例数据");
         setUsingMock(true);
@@ -500,15 +399,10 @@ export default function Home() {
         return;
       }
 
-      await fetchFromBitable(
-        selectedTableId,
-        nameFieldId,
-        locationFieldId
-      );
-      // 只在展示态自动保存配置，避免配置态弹回
-      if (dashboardState === "View" || dashboardState === "FullScreen") {
-        await autoSaveConfig(selectedTableId, nameFieldId, locationFieldId);
-      }
+      await fetchFromBitable(cfg.tableId, cfg.nameFieldId, cfg.locationFieldId, {
+        exclusion: cfg.exclusion ?? null,
+      });
+      setStatus("配置已应用，可预览地图");
     } catch (error) {
       console.error(error);
       setStatus("读取失败，已回退到示例数据");
@@ -519,43 +413,15 @@ export default function Home() {
     }
   };
 
-  const autoSaveConfig = async (
-    tableId?: string,
-    nameId?: string,
-    locId?: string,
-    center?: [number, number],
-    exclusionOverride?: ExclusionConfig | null
-  ) => {
-    const dash = dashboardRef.current;
-    if (!dash?.saveConfig) return;
+  const fetchRecords = async () => {
+    setLoading(true);
     try {
-      const targetTable = tableId || selectedTableId;
-      const dc = deriveDataConditions(config, targetTable);
-      if (!dc) return;
-      const centerToPersist = center ?? resolveCenterToPersist();
-      const exclusionToPersist =
-        exclusionOverride === undefined
-          ? activeExclusion
-          : exclusionOverride || undefined;
-      const resolvedNameId = nameId ?? nameFieldId;
-      const resolvedLocId = locId ?? locationFieldId;
-      await dash.saveConfig({
-        dataConditions: dc,
-        customConfig: {
-          nameFieldId: resolvedNameId,
-          locationFieldId: resolvedLocId,
-          defaultCenter: serializeCenter(centerToPersist),
-          exclusion: exclusionToPersist,
-        },
-      });
-      lastSavedExclusionSignature.current = makeExclusionSignature(
-        targetTable || "",
-        resolvedNameId,
-        resolvedLocId,
-        exclusionToPersist ?? null
-      );
-    } catch (err) {
-      console.warn("saveConfig failed", err);
+      const refreshed = await refreshWithCurrentConfig();
+      if (!refreshed) {
+        setStatus("请先应用配置");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -628,7 +494,7 @@ export default function Home() {
       }
       const exclusion =
         opts.exclusion === undefined
-          ? activeExclusion
+          ? appliedConfigRef.current?.exclusion
           : opts.exclusion || undefined;
       const b = bitableRef.current || bitable;
       const table =
@@ -691,7 +557,6 @@ export default function Home() {
   };
 
   const renderFromConfig = async () => {
-    applyingConfigRef.current = true;
     try {
       const dash = dashboardRef.current;
       const cfg: any = await dash?.getConfig?.();
@@ -702,11 +567,9 @@ export default function Home() {
       const tableId = dc?.tableId || selectedTableId;
       const nameId =
         cfg?.customConfig?.nameFieldId ||
-        selectedNameField ||
         nameFieldId;
       const locId =
         cfg?.customConfig?.locationFieldId ||
-        selectedLocField ||
         locationFieldId;
       const cfgCenter = parseCenterTuple(cfg?.customConfig?.defaultCenter);
       if (cfgCenter) {
@@ -741,13 +604,6 @@ export default function Home() {
         setExcludeValue("");
       }
 
-      lastSavedExclusionSignature.current = makeExclusionSignature(
-        tableId ?? "",
-        nameId,
-        locId,
-        savedExclusion ?? null
-      );
-
       if (tableId) {
         updateSelectedTableId(tableId);
         if (bitableRef.current) {
@@ -756,23 +612,31 @@ export default function Home() {
       }
       if (nameId) {
         updateNameFieldId(nameId);
-        setSelectedNameField(nameId);
       }
       if (locId) {
         updateLocationFieldId(locId);
-        setSelectedLocField(locId);
       }
 
       if (tableId && nameId && locId) {
+        const centerTuple = cfgCenter ?? DEFAULT_CENTER;
+        const nextApplied: WidgetConfig = {
+          tableId,
+          nameFieldId: nameId,
+          locationFieldId: locId,
+          defaultCenter: centerTuple,
+          exclusion: savedExclusion ?? undefined,
+        };
+        appliedConfigRef.current = nextApplied;
+        setAppliedConfig(nextApplied);
+        exclusionRef.current = nextApplied.exclusion;
         await fetchFromBitable(tableId, nameId, locId, {
-          exclusion: savedExclusion ?? null,
+          exclusion: nextApplied.exclusion ?? null,
         });
-        setAutoFetched(true);
       }
     } catch (err) {
       console.warn("renderFromConfig failed", err);
     } finally {
-      applyingConfigRef.current = false;
+      // no-op
     }
   };
 
@@ -824,21 +688,17 @@ export default function Home() {
               </label>
               <select
                 value={selectedTableId}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const nextId = e.target.value;
                   updateSelectedTableId(nextId);
-                  setAutoFetched(false);
                   updateNameFieldId("");
                   updateLocationFieldId("");
-                  setSelectedNameField("");
-                  setSelectedLocField("");
                   setExcludeFieldId("");
                   setExcludeOperator("contains");
                   setExcludeValue("");
                   if (bitableRef.current && nextId) {
-                    await loadFields(nextId, bitableRef.current);
+                    void loadFields(nextId, bitableRef.current);
                   }
-                  await autoSaveConfig(nextId, "", "", undefined, null);
                 }}
                 className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               >
@@ -859,12 +719,9 @@ export default function Home() {
               </label>
               <select
                 value={nameFieldId}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const next = e.target.value;
                   updateNameFieldId(next);
-                  setSelectedNameField(next);
-                  setAutoFetched(false);
-                  await autoSaveConfig(selectedTableId, next, selectedLocField);
                 }}
                 className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               >
@@ -883,12 +740,9 @@ export default function Home() {
               </label>
               <select
                 value={locationFieldId}
-                onChange={async (e) => {
+                onChange={(e) => {
                   const next = e.target.value;
                   updateLocationFieldId(next);
-                  setSelectedLocField(next);
-                  setAutoFetched(false);
-                  await autoSaveConfig(selectedTableId, selectedNameField, next);
                 }}
                 className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               >
@@ -982,7 +836,6 @@ export default function Home() {
                   onChange={(e) => {
                     const next = e.target.value;
                     setExcludeFieldId(next);
-                    setAutoFetched(false);
                     if (!next) {
                       setExcludeOperator("contains");
                       setExcludeValue("");
@@ -1002,7 +855,6 @@ export default function Home() {
                   onChange={(e) => {
                     const next = e.target.value as ExclusionOperator;
                     setExcludeOperator(next);
-                    setAutoFetched(false);
                     if (!EXCLUSION_OPERATORS.find((item) => item.id === next)?.requiresValue) {
                       setExcludeValue("");
                     }
@@ -1020,7 +872,6 @@ export default function Home() {
                   value={excludeValue}
                   onChange={(e) => {
                     setExcludeValue(e.target.value);
-                    setAutoFetched(false);
                   }}
                   placeholder="输入对比文本"
                   disabled={
@@ -1034,48 +885,47 @@ export default function Home() {
               </p>
             </div>
 
-              <div className="flex items-center gap-3 md:col-span-3">
-                <button
-                  onClick={fetchRecords}
-                  disabled={!isReadyToQuery || loading}
-                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+            <div className="flex flex-wrap items-center gap-3 md:col-span-3">
+              <button
+                onClick={applyCurrentForm}
+                disabled={!isReadyToQuery || loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
-                {loading ? "读取中…" : "从多维表加载"}
+                {loading ? "处理中…" : "应用配置"}
+              </button>
+              <button
+                onClick={fetchRecords}
+                disabled={!appliedConfig || loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {loading ? "处理中…" : "从多维表加载"}
               </button>
               {dashboardRef.current?.saveConfig && (
                 <button
                   onClick={async () => {
+                    const applied = appliedConfigRef.current;
+                    if (!applied) {
+                      setStatus("请先应用配置后再保存");
+                      return;
+                    }
                     const dash = dashboardRef.current;
                     if (!dash) return;
-                    const dc = deriveDataConditions(config, selectedTableId);
-                    const centerToPersist = resolveCenterToPersist();
-                    const exclusionToPersist = buildExclusionConfig(
-                      excludeFieldId,
-                      excludeOperator,
-                      excludeValue
-                    );
+                    const dc = deriveDataConditions(config, applied.tableId);
                     try {
                       await dash.saveConfig({
                         dataConditions: dc,
                         customConfig: {
-                          nameFieldId,
-                          locationFieldId,
-                          defaultCenter: serializeCenter(centerToPersist),
-                          exclusion: exclusionToPersist,
+                          nameFieldId: applied.nameFieldId,
+                          locationFieldId: applied.locationFieldId,
+                          defaultCenter: serializeCenter(applied.defaultCenter),
+                          exclusion: applied.exclusion,
                         },
                       });
-                      setDefaultCenter(centerToPersist);
-                      lastSavedExclusionSignature.current = makeExclusionSignature(
-                        selectedTableId,
-                        nameFieldId,
-                        locationFieldId,
-                        exclusionToPersist ?? null
-                      );
                       setStatus("配置已保存");
                     } catch (e) {
-                        console.error(e);
-                        setStatus("配置保存失败");
-                      }
+                      console.error(e);
+                      setStatus("配置保存失败");
+                    }
                   }}
                   className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:text-blue-800"
                 >
@@ -1117,7 +967,7 @@ export default function Home() {
           <LeafletMap
             points={activePoints}
             compact={isDashboardView}
-            fallbackCenter={defaultCenter}
+            fallbackCenter={appliedConfig?.defaultCenter ?? defaultCenter}
           />
 
           {isDashboardView ? null : (
@@ -1387,20 +1237,6 @@ function safeSample(raw: any) {
 
 function serializeCenter(center: [number, number]) {
   return { lat: center[0], lng: center[1] };
-}
-
-function makeExclusionSignature(
-  tableId: string,
-  nameId?: string | null,
-  locId?: string | null,
-  exclusion?: ExclusionConfig | null | undefined
-) {
-  return [
-    tableId || "",
-    nameId || "",
-    locId || "",
-    JSON.stringify(exclusion ?? null),
-  ].join("|");
 }
 
 function parseCenterTuple(raw: any): [number, number] | null {
