@@ -571,7 +571,7 @@ export default function Home() {
 
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-slate-700">
-                名称字段（店名）
+                名称字段
               </label>
               <select
                 value={nameFieldId}
