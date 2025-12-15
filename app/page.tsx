@@ -291,6 +291,22 @@ export default function Home() {
     }
   }, [centerPresetId, customCenterInput]);
 
+  const resolveCenterToPersist = (): [number, number] => {
+    if (centerPresetId !== "custom") {
+      const preset = CENTER_PRESETS.find((p) => p.id === centerPresetId)?.center;
+      if (preset) {
+        return [preset.lat, preset.lng];
+      }
+      return defaultCenter;
+    }
+    const latNum = Number.parseFloat(customCenterInput.lat);
+    const lngNum = Number.parseFloat(customCenterInput.lng);
+    if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+      return [latNum, lngNum];
+    }
+    return defaultCenter;
+  };
+
   const loadFields = async (tableId: string, bitableInstance: any) => {
     try {
       const table = await bitableInstance.base.getTableById(tableId);
@@ -383,12 +399,13 @@ export default function Home() {
       const targetTable = tableId || selectedTableId;
       const dc = deriveDataConditions(config, targetTable);
       if (!dc) return;
+      const centerToPersist = center ?? resolveCenterToPersist();
       await dash.saveConfig({
         dataConditions: dc,
         customConfig: {
           nameFieldId: nameId ?? nameFieldId,
           locationFieldId: locId ?? locationFieldId,
-          defaultCenter: serializeCenter(center ?? defaultCenter),
+          defaultCenter: serializeCenter(centerToPersist),
         },
       });
     } catch (err) {
@@ -751,34 +768,36 @@ export default function Home() {
               ) : null}
             </div>
 
-            <div className="flex items-center gap-3 md:col-span-3">
-              <button
-                onClick={fetchRecords}
-                disabled={!isReadyToQuery || loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              <div className="flex items-center gap-3 md:col-span-3">
+                <button
+                  onClick={fetchRecords}
+                  disabled={!isReadyToQuery || loading}
+                  className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {loading ? "读取中…" : "从多维表加载"}
               </button>
-              {dashboardRef.current?.saveConfig && (
-                <button
-                  onClick={async () => {
-                    const dash = dashboardRef.current;
-                    if (!dash) return;
-                    const dc = deriveDataConditions(config, selectedTableId);
-                    try {
-                      await dash.saveConfig({
-                        dataConditions: dc,
-                        customConfig: {
-                          nameFieldId,
-                          locationFieldId,
-                          defaultCenter: serializeCenter(defaultCenter),
-                        },
-                      });
-                      setStatus("配置已保存");
-                    } catch (e) {
-                      console.error(e);
-                      setStatus("配置保存失败");
-                    }
+                {dashboardRef.current?.saveConfig && (
+                  <button
+                    onClick={async () => {
+                      const dash = dashboardRef.current;
+                      if (!dash) return;
+                      const dc = deriveDataConditions(config, selectedTableId);
+                      const centerToPersist = resolveCenterToPersist();
+                      try {
+                        await dash.saveConfig({
+                          dataConditions: dc,
+                          customConfig: {
+                            nameFieldId,
+                            locationFieldId,
+                            defaultCenter: serializeCenter(centerToPersist),
+                          },
+                        });
+                        setDefaultCenter(centerToPersist);
+                        setStatus("配置已保存");
+                      } catch (e) {
+                        console.error(e);
+                        setStatus("配置保存失败");
+                      }
                   }}
                   className="inline-flex items-center gap-2 rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:text-blue-800"
                 >
