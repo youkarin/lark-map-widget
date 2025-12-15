@@ -288,19 +288,8 @@ export default function Home() {
     if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
       const tuple: [number, number] = [latNum, lngNum];
       setDefaultCenter(tuple);
-      const resolvedName = selectedNameField || nameFieldId;
-      const resolvedLoc = selectedLocField || locationFieldId;
-      void autoSaveConfig(selectedTableId, resolvedName, resolvedLoc, tuple);
     }
-  }, [
-    centerPresetId,
-    customCenterInput,
-    selectedTableId,
-    selectedNameField,
-    selectedLocField,
-    nameFieldId,
-    locationFieldId,
-  ]);
+  }, [centerPresetId, customCenterInput]);
 
   const loadFields = async (tableId: string, bitableInstance: any) => {
     try {
@@ -691,86 +680,74 @@ export default function Home() {
               </select>
             </div>
 
-            <div className="flex flex-col gap-2 md:col-span-3">
+            <div className="flex flex-col gap-2 md:col-span-1">
               <label className="text-sm font-semibold text-slate-700">
                 默认地图中心
               </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <select
-                  value={centerPresetId}
-                  onChange={async (e) => {
-                    const nextId = e.target.value;
-                    setCenterPresetId(nextId);
-                    const preset = CENTER_PRESETS.find((p) => p.id === nextId);
-                    if (preset?.center) {
-                      const tuple: [number, number] = [
-                        preset.center.lat,
-                        preset.center.lng,
-                      ];
-                      setDefaultCenter(tuple);
-                      setCustomCenterInput({
-                        lat: preset.center.lat.toString(),
-                        lng: preset.center.lng.toString(),
-                      });
-                      const resolvedName = selectedNameField || nameFieldId;
-                      const resolvedLoc = selectedLocField || locationFieldId;
-                      await autoSaveConfig(
-                        selectedTableId,
-                        resolvedName,
-                        resolvedLoc,
-                        tuple
-                      );
-                    } else if (nextId === "custom") {
-                      setCustomCenterInput({
-                        lat: defaultCenter[0].toString(),
-                        lng: defaultCenter[1].toString(),
-                      });
-                    }
-                  }}
-                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-                >
-                  {CENTER_PRESETS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-slate-500">
-                  点位为空时将使用此经纬度作为地图中心。
-                </p>
-              </div>
+              <select
+                value={centerPresetId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setCenterPresetId(nextId);
+                  const preset = CENTER_PRESETS.find((p) => p.id === nextId);
+                  if (preset?.center) {
+                    const tuple: [number, number] = [
+                      preset.center.lat,
+                      preset.center.lng,
+                    ];
+                    setDefaultCenter(tuple);
+                    setCustomCenterInput({
+                      lat: preset.center.lat.toString(),
+                      lng: preset.center.lng.toString(),
+                    });
+                  } else if (nextId === "custom") {
+                    setCustomCenterInput({
+                      lat: defaultCenter[0].toString(),
+                      lng: defaultCenter[1].toString(),
+                    });
+                  }
+                }}
+                className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+              >
+                {CENTER_PRESETS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                点位为空时将使用此经纬度作为地图中心。
+              </p>
               {centerPresetId === "custom" ? (
-                <>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <input
-                      value={customCenterInput.lat}
-                      onChange={(e) =>
-                        setCustomCenterInput((prev) => ({
-                          ...prev,
-                          lat: e.target.value,
-                        }))
-                      }
-                      placeholder="纬度（Lat）示例：31.2304"
-                      className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-                      inputMode="decimal"
-                    />
-                    <input
-                      value={customCenterInput.lng}
-                      onChange={(e) =>
-                        setCustomCenterInput((prev) => ({
-                          ...prev,
-                          lng: e.target.value,
-                        }))
-                      }
-                      placeholder="经度（Lng）示例：121.4737"
-                      className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
-                      inputMode="decimal"
-                    />
-                  </div>
+                <div className="flex flex-col gap-2">
+                  <input
+                    value={customCenterInput.lat}
+                    onChange={(e) =>
+                      setCustomCenterInput((prev) => ({
+                        ...prev,
+                        lat: e.target.value,
+                      }))
+                    }
+                    placeholder="纬度（Lat）示例：31.2304"
+                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    inputMode="decimal"
+                  />
+                  <input
+                    value={customCenterInput.lng}
+                    onChange={(e) =>
+                      setCustomCenterInput((prev) => ({
+                        ...prev,
+                        lng: e.target.value,
+                      }))
+                    }
+                    placeholder="经度（Lng）示例：121.4737"
+                    className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                    inputMode="decimal"
+                  />
                   <p className="text-xs text-slate-500">
                     输入十进制经纬度，系统会在没有点位时使用该位置。
                   </p>
-                </>
+                </div>
               ) : null}
             </div>
 
