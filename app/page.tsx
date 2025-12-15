@@ -366,7 +366,7 @@ export default function Home() {
       if (parsed[1]) {
         setLocationFieldId(parsed[1].id);
       }
-      if (!parsed.some((field) => field.id === excludeFieldId)) {
+      if (!parsed.some((field: FieldOption) => field.id === excludeFieldId)) {
         setExcludeFieldId("");
       }
     } catch (error) {
