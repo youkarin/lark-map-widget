@@ -86,6 +86,9 @@ export default function Home() {
   const [selectedLocField, setSelectedLocField] = useState<string>("");
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
   const initialRefreshTimer = useRef<NodeJS.Timeout | null>(null);
+  const selectedTableIdRef = useRef<string>("");
+  const nameFieldIdRef = useRef<string>("");
+  const locationFieldIdRef = useRef<string>("");
   const exclusionRef = useRef<ExclusionConfig | undefined>(undefined);
   const [defaultCenter, setDefaultCenter] = useState<[number, number]>(DEFAULT_CENTER);
   const [centerPresetId, setCenterPresetId] = useState<string>(CENTER_PRESETS[0].id);
@@ -135,6 +138,18 @@ export default function Home() {
 
         if ((dashboard as any)?.onDataChange) {
           (dashboard as any).onDataChange(async (e: any) => {
+            if (exclusionRef.current) {
+              const tableId = selectedTableIdRef.current;
+              const nameId = nameFieldIdRef.current;
+              const locId = locationFieldIdRef.current;
+              if (tableId && nameId && locId) {
+                await fetchFromBitable(tableId, nameId, locId, {
+                  preserveOnEmpty: true,
+                  exclusion: exclusionRef.current,
+                });
+                return;
+              }
+            }
             const mapped = mapDashboardData(e?.data, exclusionRef.current);
             // 在展示态常会收到空聚合，这里仅在有有效点时更新
             if (mapped.points.length) {
@@ -197,17 +212,37 @@ export default function Home() {
           const dc = normalizeDataConditions(
             config?.dataConditions ?? [{ tableId: initialTableId }]
           );
+          const previewTableId = dc?.tableId || initialTableId;
           if (dc) {
             const preview = await (dashboard as any).getPreviewData(dc as any);
-            const mapped = mapDashboardData(preview?.data ?? preview, exclusionRef.current);
-            updatePoints(mapped.points, {
-              fallbackToMock: false,
-              clearOnEmpty: true,
-              sampleRaw: mapped.invalidSample,
-              total: mapped.total,
-              invalid: mapped.invalid,
-              excluded: mapped.excluded,
-            });
+            const mapped = mapDashboardData(
+              preview?.data ?? preview,
+              exclusionRef.current
+            );
+            const shouldSkipPreview = Boolean(
+              exclusionRef.current && !mapped.excluded && mapped.points.length
+            );
+            if (!shouldSkipPreview) {
+              updatePoints(mapped.points, {
+                fallbackToMock: false,
+                clearOnEmpty: true,
+                sampleRaw: mapped.invalidSample,
+                total: mapped.total,
+                invalid: mapped.invalid,
+                excluded: mapped.excluded,
+              });
+            }
+            if (exclusionRef.current && previewTableId) {
+              const previewName =
+                nameFieldIdRef.current || initialNameField || nameFieldId;
+              const previewLoc =
+                locationFieldIdRef.current || initialLocField || locationFieldId;
+              if (previewName && previewLoc) {
+                await fetchFromBitable(previewTableId, previewName, previewLoc, {
+                  preserveOnEmpty: true,
+                });
+              }
+            }
           }
         }
 
@@ -280,6 +315,15 @@ export default function Home() {
   useEffect(() => {
     exclusionRef.current = activeExclusion;
   }, [activeExclusion]);
+  useEffect(() => {
+    selectedTableIdRef.current = selectedTableId;
+  }, [selectedTableId]);
+  useEffect(() => {
+    nameFieldIdRef.current = nameFieldId;
+  }, [nameFieldId]);
+  useEffect(() => {
+    locationFieldIdRef.current = locationFieldId;
+  }, [locationFieldId]);
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
@@ -394,16 +438,18 @@ export default function Home() {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
           const mapped = mapDashboardData(preview?.data ?? preview, activeExclusion);
-          updatePoints(mapped.points, {
-            fallbackToMock: false,
-            clearOnEmpty: true,
-            sampleRaw: mapped.invalidSample,
-            total: mapped.total,
-            invalid: mapped.invalid,
-            excluded: mapped.excluded,
-          });
-          if (mapped.points.length) {
-            return;
+          if (!activeExclusion) {
+            updatePoints(mapped.points, {
+              fallbackToMock: false,
+              clearOnEmpty: true,
+              sampleRaw: mapped.invalidSample,
+              total: mapped.total,
+              invalid: mapped.invalid,
+              excluded: mapped.excluded,
+            });
+            if (mapped.points.length) {
+              return;
+            }
           }
         }
       }
