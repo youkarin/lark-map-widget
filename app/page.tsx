@@ -8,11 +8,24 @@ type TableOption = { id: string; name: string };
 type FieldOption = { id: string; name: string; type?: string };
 type MapPoint = { id: string; name: string; lat: number; lng: number };
 type DashboardState = "Create" | "Config" | "View" | "FullScreen" | "Unknown";
+type ExclusionConfig = {
+  fieldId: string;
+  operator: ExclusionOperator;
+  value?: string;
+};
+type ExclusionOperator =
+  | "contains"
+  | "notContains"
+  | "equals"
+  | "notEquals"
+  | "isEmpty"
+  | "notEmpty";
 type MapResult = {
   points: MapPoint[];
   invalidSample?: any;
   total?: number;
   invalid?: number;
+  excluded?: number;
 };
 const VERSION = "v0.0.16";
 
@@ -43,6 +56,15 @@ const CENTER_PRESETS = [
   { id: "hangzhou", label: "杭州", center: { lat: 30.2741, lng: 120.1551 } },
   { id: "custom", label: "自定义经纬度" },
 ];
+const EXCLUSION_OPERATORS: { id: ExclusionOperator; label: string; requiresValue: boolean }[] =
+  [
+    { id: "contains", label: "包含", requiresValue: true },
+    { id: "notContains", label: "不包含", requiresValue: true },
+    { id: "equals", label: "等于", requiresValue: true },
+    { id: "notEquals", label: "不等于", requiresValue: true },
+    { id: "isEmpty", label: "为空", requiresValue: false },
+    { id: "notEmpty", label: "不为空", requiresValue: false },
+  ];
 
 export default function Home() {
   const [sdkReady, setSdkReady] = useState(false);
@@ -64,12 +86,16 @@ export default function Home() {
   const [selectedLocField, setSelectedLocField] = useState<string>("");
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
   const initialRefreshTimer = useRef<NodeJS.Timeout | null>(null);
+  const exclusionRef = useRef<ExclusionConfig | undefined>(undefined);
   const [defaultCenter, setDefaultCenter] = useState<[number, number]>(DEFAULT_CENTER);
   const [centerPresetId, setCenterPresetId] = useState<string>(CENTER_PRESETS[0].id);
   const [customCenterInput, setCustomCenterInput] = useState<{ lat: string; lng: string }>({
     lat: "",
     lng: "",
   });
+  const [excludeFieldId, setExcludeFieldId] = useState<string>("");
+  const [excludeOperator, setExcludeOperator] = useState<ExclusionOperator>("contains");
+  const [excludeValue, setExcludeValue] = useState<string>("");
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -109,7 +135,7 @@ export default function Home() {
 
         if ((dashboard as any)?.onDataChange) {
           (dashboard as any).onDataChange(async (e: any) => {
-            const mapped = mapDashboardData(e?.data);
+            const mapped = mapDashboardData(e?.data, exclusionRef.current);
             // 在展示态常会收到空聚合，这里仅在有有效点时更新
             if (mapped.points.length) {
               updatePoints(mapped.points, {
@@ -117,6 +143,7 @@ export default function Home() {
                 sampleRaw: mapped.invalidSample,
                 total: mapped.total,
                 invalid: mapped.invalid,
+                excluded: mapped.excluded,
               });
             }
           });
@@ -172,13 +199,14 @@ export default function Home() {
           );
           if (dc) {
             const preview = await (dashboard as any).getPreviewData(dc as any);
-            const mapped = mapDashboardData(preview?.data ?? preview);
+            const mapped = mapDashboardData(preview?.data ?? preview, exclusionRef.current);
             updatePoints(mapped.points, {
               fallbackToMock: false,
               clearOnEmpty: true,
               sampleRaw: mapped.invalidSample,
               total: mapped.total,
               invalid: mapped.invalid,
+              excluded: mapped.excluded,
             });
           }
         }
@@ -240,6 +268,18 @@ export default function Home() {
   const wrapperClass = isDashboardView
     ? "mx-auto flex w-full flex-col gap-4"
     : "mx-auto flex w-full max-w-6xl flex-col gap-6";
+  const exclusionOperatorMeta = useMemo(
+    () => EXCLUSION_OPERATORS.find((item) => item.id === excludeOperator),
+    [excludeOperator]
+  );
+  const exclusionNeedsValue = exclusionOperatorMeta?.requiresValue ?? false;
+  const activeExclusion = useMemo(
+    () => buildExclusionConfig(excludeFieldId, excludeOperator, excludeValue),
+    [excludeFieldId, excludeOperator, excludeValue]
+  );
+  useEffect(() => {
+    exclusionRef.current = activeExclusion;
+  }, [activeExclusion]);
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
@@ -326,6 +366,9 @@ export default function Home() {
       if (parsed[1]) {
         setLocationFieldId(parsed[1].id);
       }
+      if (!parsed.some((field) => field.id === excludeFieldId)) {
+        setExcludeFieldId("");
+      }
     } catch (error) {
       console.error(error);
       setFieldOptions([]);
@@ -350,13 +393,14 @@ export default function Home() {
         ) {
           const dc = deriveDataConditions(config, selectedTableId);
           const preview: any = await dash.getPreviewData(dc as any);
-          const mapped = mapDashboardData(preview?.data ?? preview);
+          const mapped = mapDashboardData(preview?.data ?? preview, activeExclusion);
           updatePoints(mapped.points, {
             fallbackToMock: false,
             clearOnEmpty: true,
             sampleRaw: mapped.invalidSample,
             total: mapped.total,
             invalid: mapped.invalid,
+            excluded: mapped.excluded,
           });
           if (mapped.points.length) {
             return;
@@ -394,7 +438,8 @@ export default function Home() {
     tableId?: string,
     nameId?: string,
     locId?: string,
-    center?: [number, number]
+    center?: [number, number],
+    exclusionOverride?: ExclusionConfig | null
   ) => {
     const dash = dashboardRef.current;
     if (!dash?.saveConfig) return;
@@ -403,12 +448,17 @@ export default function Home() {
       const dc = deriveDataConditions(config, targetTable);
       if (!dc) return;
       const centerToPersist = center ?? resolveCenterToPersist();
+      const exclusionToPersist =
+        exclusionOverride === undefined
+          ? activeExclusion
+          : exclusionOverride || undefined;
       await dash.saveConfig({
         dataConditions: dc,
         customConfig: {
           nameFieldId: nameId ?? nameFieldId,
           locationFieldId: locId ?? locationFieldId,
           defaultCenter: serializeCenter(centerToPersist),
+          exclusion: exclusionToPersist,
         },
       });
     } catch (err) {
@@ -424,6 +474,7 @@ export default function Home() {
       sampleRaw?: any;
       total?: number;
       invalid?: number;
+      excluded?: number;
     } = {},
     preserveOnEmpty?: boolean
   ) => {
@@ -435,10 +486,17 @@ export default function Home() {
         opts.sampleRaw !== undefined
           ? ` 示例原值: ${safeSample(opts.sampleRaw)}`
           : "";
-      const totalInfo =
-        opts.total !== undefined || opts.invalid !== undefined
-          ? ` | 总记录: ${opts.total ?? 0}, 无效: ${opts.invalid ?? 0}`
-          : "";
+      const statParts: string[] = [];
+      if (opts.total !== undefined) {
+        statParts.push(`总记录: ${opts.total}`);
+      }
+      if (opts.invalid !== undefined) {
+        statParts.push(`无效: ${opts.invalid}`);
+      }
+      if (opts.excluded !== undefined) {
+        statParts.push(`排除: ${opts.excluded}`);
+      }
+      const totalInfo = statParts.length ? ` | ${statParts.join(", ")}` : "";
       setStatus(
         `未解析到有效经纬度，请检查字段格式（如 31.2,121.5）。${extra}${totalInfo}`
       );
@@ -453,8 +511,14 @@ export default function Home() {
     }
     const totalVal = opts.total ?? mapped.length;
     const invalidVal = opts.invalid ?? 0;
-    const totalInfo = ` | 总记录: ${totalVal}, 无效: ${invalidVal}`;
-    setStatus(`已加载 ${mapped.length} 条位置${totalInfo}`);
+    const statParts = [
+      `总记录: ${totalVal}`,
+      `无效: ${invalidVal}`,
+    ];
+    if (opts.excluded !== undefined) {
+      statParts.push(`排除: ${opts.excluded}`);
+    }
+    setStatus(`已加载 ${mapped.length} 条位置 | ${statParts.join(", ")}`);
     setPoints(mapped);
     setUsingMock(false);
   };
@@ -463,12 +527,16 @@ export default function Home() {
     tableId?: string,
     nameField?: string,
     locationField?: string,
-    opts: { preserveOnEmpty?: boolean } = {}
+    opts: { preserveOnEmpty?: boolean; exclusion?: ExclusionConfig | null } = {}
   ) => {
     try {
       if (!tableId || !nameField || !locationField) {
         return;
       }
+      const exclusion =
+        opts.exclusion === undefined
+          ? activeExclusion
+          : opts.exclusion || undefined;
       const b = bitableRef.current || bitable;
       const table =
         (b as any)?.base?.getTableById
@@ -479,6 +547,7 @@ export default function Home() {
       const mapped: MapPoint[] = [];
       let invalidSample: any = undefined;
       let invalidCount = 0;
+      let excludedCount = 0;
 
       records.forEach((record: any, idx: number) => {
         const nameRaw = record?.fields?.[nameField];
@@ -487,6 +556,17 @@ export default function Home() {
         if (!coords) {
           if (invalidSample === undefined) invalidSample = locRaw;
           invalidCount += 1;
+          return;
+        }
+        if (
+          exclusion &&
+          shouldExcludeValue(
+            record?.fields?.[exclusion.fieldId],
+            exclusion.operator,
+            exclusion.value
+          )
+        ) {
+          excludedCount += 1;
           return;
         }
         mapped.push({
@@ -505,6 +585,7 @@ export default function Home() {
           sampleRaw: invalidSample,
           total: records.length,
           invalid: invalidCount,
+          excluded: exclusion ? excludedCount : undefined,
         },
         opts.preserveOnEmpty
       );
@@ -553,6 +634,18 @@ export default function Home() {
         setCenterPresetId(CENTER_PRESETS[0].id);
         setCustomCenterInput({ lat: "", lng: "" });
       }
+      const savedExclusion = normalizeExclusionConfig(
+        cfg?.customConfig?.exclusion
+      );
+      if (savedExclusion) {
+        setExcludeFieldId(savedExclusion.fieldId);
+        setExcludeOperator(savedExclusion.operator);
+        setExcludeValue(savedExclusion.value ?? "");
+      } else {
+        setExcludeFieldId("");
+        setExcludeOperator("contains");
+        setExcludeValue("");
+      }
 
       if (tableId) {
         setSelectedTableId(tableId);
@@ -570,7 +663,9 @@ export default function Home() {
       }
 
       if (tableId && nameId && locId) {
-        await fetchFromBitable(tableId, nameId, locId);
+        await fetchFromBitable(tableId, nameId, locId, {
+          exclusion: savedExclusion ?? null,
+        });
         setAutoFetched(true);
       }
     } catch (err) {
@@ -634,10 +729,13 @@ export default function Home() {
                   setLocationFieldId("");
                   setSelectedNameField("");
                   setSelectedLocField("");
+                  setExcludeFieldId("");
+                  setExcludeOperator("contains");
+                  setExcludeValue("");
                   if (bitableRef.current && nextId) {
                     await loadFields(nextId, bitableRef.current);
                   }
-                  await autoSaveConfig(nextId, "", "");
+                  await autoSaveConfig(nextId, "", "", undefined, null);
                 }}
                 className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
               >
@@ -771,6 +869,68 @@ export default function Home() {
               ) : null}
             </div>
 
+            <div className="flex flex-col gap-2 md:col-span-3">
+              <label className="text-sm font-semibold text-slate-700">
+                排除规则（可选）
+              </label>
+              <div className="grid gap-3 md:grid-cols-3">
+                <select
+                  value={excludeFieldId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setExcludeFieldId(next);
+                    setAutoFetched(false);
+                    if (!next) {
+                      setExcludeOperator("contains");
+                      setExcludeValue("");
+                    }
+                  }}
+                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">不使用排除字段</option>
+                  {fieldOptions.map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {field.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={excludeOperator}
+                  onChange={(e) => {
+                    const next = e.target.value as ExclusionOperator;
+                    setExcludeOperator(next);
+                    setAutoFetched(false);
+                    if (!EXCLUSION_OPERATORS.find((item) => item.id === next)?.requiresValue) {
+                      setExcludeValue("");
+                    }
+                  }}
+                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                  disabled={!excludeFieldId}
+                >
+                  {EXCLUSION_OPERATORS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={excludeValue}
+                  onChange={(e) => {
+                    setExcludeValue(e.target.value);
+                    setAutoFetched(false);
+                  }}
+                  placeholder="输入对比文本"
+                  disabled={
+                    !excludeFieldId || !exclusionNeedsValue
+                  }
+                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+                />
+              </div>
+              <p className="text-xs text-slate-500">
+                选择一个字段并设置条件（包含 / 不包含 / 等于 / 为空等），满足条件的记录将从地图点位中剔除。
+              </p>
+            </div>
+
               <div className="flex items-center gap-3 md:col-span-3">
                 <button
                   onClick={fetchRecords}
@@ -779,25 +939,31 @@ export default function Home() {
               >
                 {loading ? "读取中…" : "从多维表加载"}
               </button>
-                {dashboardRef.current?.saveConfig && (
-                  <button
-                    onClick={async () => {
-                      const dash = dashboardRef.current;
-                      if (!dash) return;
-                      const dc = deriveDataConditions(config, selectedTableId);
-                      const centerToPersist = resolveCenterToPersist();
-                      try {
-                        await dash.saveConfig({
-                          dataConditions: dc,
-                          customConfig: {
-                            nameFieldId,
-                            locationFieldId,
-                            defaultCenter: serializeCenter(centerToPersist),
-                          },
-                        });
-                        setDefaultCenter(centerToPersist);
-                        setStatus("配置已保存");
-                      } catch (e) {
+              {dashboardRef.current?.saveConfig && (
+                <button
+                  onClick={async () => {
+                    const dash = dashboardRef.current;
+                    if (!dash) return;
+                    const dc = deriveDataConditions(config, selectedTableId);
+                    const centerToPersist = resolveCenterToPersist();
+                    const exclusionToPersist = buildExclusionConfig(
+                      excludeFieldId,
+                      excludeOperator,
+                      excludeValue
+                    );
+                    try {
+                      await dash.saveConfig({
+                        dataConditions: dc,
+                        customConfig: {
+                          nameFieldId,
+                          locationFieldId,
+                          defaultCenter: serializeCenter(centerToPersist),
+                          exclusion: exclusionToPersist,
+                        },
+                      });
+                      setDefaultCenter(centerToPersist);
+                      setStatus("配置已保存");
+                    } catch (e) {
                         console.error(e);
                         setStatus("配置保存失败");
                       }
@@ -942,7 +1108,54 @@ function getCellText(raw: unknown): string {
   }
 }
 
-function mapDashboardData(data: any): MapResult {
+function shouldExcludeValue(
+  raw: unknown,
+  operator: ExclusionOperator,
+  compare?: string
+): boolean {
+  const text = getCellText(raw).trim();
+  const normalizedSource = text.toLowerCase();
+  const target = (compare ?? "").trim();
+  const normalizedTarget = target.toLowerCase();
+  switch (operator) {
+    case "contains":
+      return target ? normalizedSource.includes(normalizedTarget) : false;
+    case "notContains":
+      return target ? !normalizedSource.includes(normalizedTarget) : false;
+    case "equals":
+      return target ? normalizedSource === normalizedTarget : false;
+    case "notEquals":
+      return target ? normalizedSource !== normalizedTarget : false;
+    case "isEmpty":
+      return text.length === 0;
+    case "notEmpty":
+      return text.length > 0;
+    default:
+      return false;
+  }
+}
+
+function tryGetExclusionFieldFromRow(row: any, fieldId: string): {
+  found: boolean;
+  value?: unknown;
+} {
+  if (!row || typeof row !== "object" || Array.isArray(row)) {
+    return { found: false };
+  }
+  if (
+    row.fields &&
+    typeof row.fields === "object" &&
+    fieldId in row.fields
+  ) {
+    return { found: true, value: row.fields[fieldId] };
+  }
+  if (fieldId in row) {
+    return { found: true, value: (row as any)[fieldId] };
+  }
+  return { found: false };
+}
+
+function mapDashboardData(data: any, exclusion?: ExclusionConfig): MapResult {
   if (!data) return { points: [] };
 
   // IData: IDataItem[][] from dashboard getData / getPreviewData
@@ -950,6 +1163,7 @@ function mapDashboardData(data: any): MapResult {
     const mapped: MapPoint[] = [];
     let invalidSample: any = undefined;
     let invalidCount = 0;
+     let excludedCount = 0;
     const total = Math.max(0, (data?.length || 1) - 1);
     data.slice(1).forEach((row: any[], idx: number) => {
       const name = row?.[0]?.text ?? row?.[0]?.value ?? row?.[0];
@@ -960,6 +1174,16 @@ function mapDashboardData(data: any): MapResult {
         invalidCount += 1;
         return;
       }
+      if (exclusion) {
+        const candidate = tryGetExclusionFieldFromRow(row, exclusion.fieldId);
+        if (
+          candidate.found &&
+          shouldExcludeValue(candidate.value, exclusion.operator, exclusion.value)
+        ) {
+          excludedCount += 1;
+          return;
+        }
+      }
       mapped.push({
         id: String(idx),
         name: getCellText(name) || "未命名",
@@ -967,13 +1191,20 @@ function mapDashboardData(data: any): MapResult {
         lng: coords.lng,
       });
     });
-    return { points: mapped, invalidSample, total, invalid: invalidCount };
+    return {
+      points: mapped,
+      invalidSample,
+      total,
+      invalid: invalidCount,
+      excluded: exclusion ? excludedCount : undefined,
+    };
   }
 
   if (Array.isArray(data)) {
     const mapped: MapPoint[] = [];
     let invalidSample: any = undefined;
     let invalidCount = 0;
+    let excludedCount = 0;
     const total = data.length;
     data.forEach((row: any, idx: number) => {
       const name = row?.name || row?.title || row?.[0];
@@ -984,6 +1215,16 @@ function mapDashboardData(data: any): MapResult {
         invalidCount += 1;
         return;
       }
+      if (exclusion) {
+        const candidate = tryGetExclusionFieldFromRow(row, exclusion.fieldId);
+        if (
+          candidate.found &&
+          shouldExcludeValue(candidate.value, exclusion.operator, exclusion.value)
+        ) {
+          excludedCount += 1;
+          return;
+        }
+      }
       mapped.push({
         id: row?.id || String(idx),
         name: getCellText(name) || "未命名",
@@ -991,7 +1232,13 @@ function mapDashboardData(data: any): MapResult {
         lng: coords.lng,
       });
     });
-    return { points: mapped, invalidSample, total, invalid: invalidCount };
+    return {
+      points: mapped,
+      invalidSample,
+      total,
+      invalid: invalidCount,
+      excluded: exclusion ? excludedCount : undefined,
+    };
   }
 
   return { points: [] };
@@ -1055,4 +1302,44 @@ function parseCenterTuple(raw: any): [number, number] | null {
 
 function isSameCenter(a: [number, number], b: [number, number]) {
   return Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
+}
+
+function operatorRequiresValue(operator: ExclusionOperator) {
+  return EXCLUSION_OPERATORS.some(
+    (item) => item.id === operator && item.requiresValue
+  );
+}
+
+function isValidExclusionOperator(value: any): value is ExclusionOperator {
+  return EXCLUSION_OPERATORS.some((item) => item.id === value);
+}
+
+function buildExclusionConfig(
+  fieldId: string,
+  operator: ExclusionOperator,
+  value: string
+): ExclusionConfig | undefined {
+  if (!fieldId || !isValidExclusionOperator(operator)) return undefined;
+  if (operatorRequiresValue(operator)) {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return { fieldId, operator, value: trimmed };
+  }
+  return { fieldId, operator };
+}
+
+function normalizeExclusionConfig(raw: any): ExclusionConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const fieldId = raw.fieldId;
+  const operator = raw.operator;
+  if (typeof fieldId !== "string" || !isValidExclusionOperator(operator)) {
+    return undefined;
+  }
+  if (operatorRequiresValue(operator)) {
+    if (typeof raw.value !== "string" || !raw.value.trim()) {
+      return undefined;
+    }
+    return { fieldId, operator, value: raw.value.trim() };
+  }
+  return { fieldId, operator };
 }
