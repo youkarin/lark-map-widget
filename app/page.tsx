@@ -89,6 +89,9 @@ export default function Home() {
             setDashboardState(next ?? "Unknown");
             if (next === "Config" || next === "Create") {
               setAutoFetched(false);
+              if (next === "Config") {
+                await renderFromConfig();
+              }
             }
             if (next === "View" || next === "FullScreen") {
               await renderFromConfig();
