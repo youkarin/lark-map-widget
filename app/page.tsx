@@ -138,17 +138,11 @@ export default function Home() {
 
         if ((dashboard as any)?.onDataChange) {
           (dashboard as any).onDataChange(async (e: any) => {
-            if (exclusionRef.current) {
-              const tableId = selectedTableIdRef.current;
-              const nameId = nameFieldIdRef.current;
-              const locId = locationFieldIdRef.current;
-              if (tableId && nameId && locId) {
-                await fetchFromBitable(tableId, nameId, locId, {
-                  preserveOnEmpty: true,
-                  exclusion: exclusionRef.current,
-                });
-                return;
-              }
+            const refreshed = await refreshWithCurrentConfig({
+              preserveOnEmpty: true,
+            });
+            if (refreshed) {
+              return;
             }
             const mapped = mapDashboardData(e?.data, exclusionRef.current);
             // 在展示态常会收到空聚合，这里仅在有有效点时更新
@@ -417,6 +411,21 @@ export default function Home() {
       console.error(error);
       setFieldOptions([]);
     }
+  };
+
+  const refreshWithCurrentConfig = async (
+    opts: { preserveOnEmpty?: boolean } = {}
+  ) => {
+    const tableId = selectedTableIdRef.current || selectedTableId;
+    const nameId =
+      nameFieldIdRef.current || selectedNameField || nameFieldId;
+    const locId =
+      locationFieldIdRef.current || selectedLocField || locationFieldId;
+    if (tableId && nameId && locId) {
+      await fetchFromBitable(tableId, nameId, locId, opts);
+      return true;
+    }
+    return false;
   };
 
 
