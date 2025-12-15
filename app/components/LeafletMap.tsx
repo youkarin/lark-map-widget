@@ -25,11 +25,13 @@ export function LeafletMap({
   zoom = 6,
   height = 520,
   compact = false,
+  fallbackCenter = [44.0, 12.0],
 }: {
   points: MapPoint[];
   zoom?: number;
   height?: number;
   compact?: boolean;
+  fallbackCenter?: [number, number];
 }) {
   useEffect(() => {
     L.Marker.prototype.options.icon = defaultIcon;
@@ -39,9 +41,8 @@ export function LeafletMap({
     if (points.length > 0) {
       return [points[0].lat, points[0].lng];
     }
-    // 默认聚焦意大利（近博洛尼亚/圣马力诺一带）
-    return [44.0, 12.0];
-  }, [points]);
+    return fallbackCenter;
+  }, [points, fallbackCenter]);
 
   return (
     <div

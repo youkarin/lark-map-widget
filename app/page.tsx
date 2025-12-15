@@ -34,6 +34,15 @@ const mockPoints: MapPoint[] = [
   { id: "3", name: "杭州西湖店", lat: 30.249, lng: 120.155 },
   { id: "4", name: "深圳南山店", lat: 22.533, lng: 113.930 },
 ];
+const DEFAULT_CENTER: [number, number] = [44.0, 12.0];
+const CENTER_PRESETS = [
+  { id: "italy", label: "意大利（默认）", center: { lat: 44.0, lng: 12.0 } },
+  { id: "china", label: "中国（北京）", center: { lat: 39.9042, lng: 116.4074 } },
+  { id: "shanghai", label: "上海", center: { lat: 31.2304, lng: 121.4737 } },
+  { id: "shenzhen", label: "深圳", center: { lat: 22.543096, lng: 114.057865 } },
+  { id: "hangzhou", label: "杭州", center: { lat: 30.2741, lng: 120.1551 } },
+  { id: "custom", label: "自定义经纬度" },
+];
 
 export default function Home() {
   const [sdkReady, setSdkReady] = useState(false);
@@ -55,6 +64,12 @@ export default function Home() {
   const [selectedLocField, setSelectedLocField] = useState<string>("");
   const refreshTimer = useRef<NodeJS.Timeout | null>(null);
   const initialRefreshTimer = useRef<NodeJS.Timeout | null>(null);
+  const [defaultCenter, setDefaultCenter] = useState<[number, number]>(DEFAULT_CENTER);
+  const [centerPresetId, setCenterPresetId] = useState<string>(CENTER_PRESETS[0].id);
+  const [customCenterInput, setCustomCenterInput] = useState<{ lat: string; lng: string }>({
+    lat: "",
+    lng: "",
+  });
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -266,6 +281,27 @@ export default function Home() {
     locationFieldId,
   ]);
 
+  useEffect(() => {
+    if (centerPresetId !== "custom") return;
+    const latNum = Number.parseFloat(customCenterInput.lat);
+    const lngNum = Number.parseFloat(customCenterInput.lng);
+    if (Number.isFinite(latNum) && Number.isFinite(lngNum)) {
+      const tuple: [number, number] = [latNum, lngNum];
+      setDefaultCenter(tuple);
+      const resolvedName = selectedNameField || nameFieldId;
+      const resolvedLoc = selectedLocField || locationFieldId;
+      void autoSaveConfig(selectedTableId, resolvedName, resolvedLoc, tuple);
+    }
+  }, [
+    centerPresetId,
+    customCenterInput,
+    selectedTableId,
+    selectedNameField,
+    selectedLocField,
+    nameFieldId,
+    locationFieldId,
+  ]);
+
   const loadFields = async (tableId: string, bitableInstance: any) => {
     try {
       const table = await bitableInstance.base.getTableById(tableId);
@@ -287,6 +323,7 @@ export default function Home() {
       setFieldOptions([]);
     }
   };
+
 
   const fetchRecords = async () => {
     if (!isReadyToQuery) {
@@ -348,7 +385,8 @@ export default function Home() {
   const autoSaveConfig = async (
     tableId?: string,
     nameId?: string,
-    locId?: string
+    locId?: string,
+    center?: [number, number]
   ) => {
     const dash = dashboardRef.current;
     if (!dash?.saveConfig) return;
@@ -361,6 +399,7 @@ export default function Home() {
         customConfig: {
           nameFieldId: nameId ?? nameFieldId,
           locationFieldId: locId ?? locationFieldId,
+          defaultCenter: serializeCenter(center ?? defaultCenter),
         },
       });
     } catch (err) {
@@ -485,6 +524,26 @@ export default function Home() {
         cfg?.customConfig?.locationFieldId ||
         selectedLocField ||
         locationFieldId;
+      const cfgCenter = parseCenterTuple(cfg?.customConfig?.defaultCenter);
+      if (cfgCenter) {
+        setDefaultCenter(cfgCenter);
+        const preset = CENTER_PRESETS.find(
+          (p) => p.center && isSameCenter([p.center.lat, p.center.lng], cfgCenter)
+        );
+        setCenterPresetId(preset?.id ?? "custom");
+        if (!preset) {
+          setCustomCenterInput({
+            lat: cfgCenter[0].toString(),
+            lng: cfgCenter[1].toString(),
+          });
+        } else {
+          setCustomCenterInput({ lat: "", lng: "" });
+        }
+      } else {
+        setDefaultCenter(DEFAULT_CENTER);
+        setCenterPresetId(CENTER_PRESETS[0].id);
+        setCustomCenterInput({ lat: "", lng: "" });
+      }
 
       if (tableId) {
         setSelectedTableId(tableId);
@@ -632,6 +691,89 @@ export default function Home() {
               </select>
             </div>
 
+            <div className="flex flex-col gap-2 md:col-span-3">
+              <label className="text-sm font-semibold text-slate-700">
+                默认地图中心
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <select
+                  value={centerPresetId}
+                  onChange={async (e) => {
+                    const nextId = e.target.value;
+                    setCenterPresetId(nextId);
+                    const preset = CENTER_PRESETS.find((p) => p.id === nextId);
+                    if (preset?.center) {
+                      const tuple: [number, number] = [
+                        preset.center.lat,
+                        preset.center.lng,
+                      ];
+                      setDefaultCenter(tuple);
+                      setCustomCenterInput({
+                        lat: preset.center.lat.toString(),
+                        lng: preset.center.lng.toString(),
+                      });
+                      const resolvedName = selectedNameField || nameFieldId;
+                      const resolvedLoc = selectedLocField || locationFieldId;
+                      await autoSaveConfig(
+                        selectedTableId,
+                        resolvedName,
+                        resolvedLoc,
+                        tuple
+                      );
+                    } else if (nextId === "custom") {
+                      setCustomCenterInput({
+                        lat: defaultCenter[0].toString(),
+                        lng: defaultCenter[1].toString(),
+                      });
+                    }
+                  }}
+                  className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                >
+                  {CENTER_PRESETS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500">
+                  点位为空时将使用此经纬度作为地图中心。
+                </p>
+              </div>
+              {centerPresetId === "custom" ? (
+                <>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <input
+                      value={customCenterInput.lat}
+                      onChange={(e) =>
+                        setCustomCenterInput((prev) => ({
+                          ...prev,
+                          lat: e.target.value,
+                        }))
+                      }
+                      placeholder="纬度（Lat）示例：31.2304"
+                      className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                      inputMode="decimal"
+                    />
+                    <input
+                      value={customCenterInput.lng}
+                      onChange={(e) =>
+                        setCustomCenterInput((prev) => ({
+                          ...prev,
+                          lng: e.target.value,
+                        }))
+                      }
+                      placeholder="经度（Lng）示例：121.4737"
+                      className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                      inputMode="decimal"
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    输入十进制经纬度，系统会在没有点位时使用该位置。
+                  </p>
+                </>
+              ) : null}
+            </div>
+
             <div className="flex items-center gap-3 md:col-span-3">
               <button
                 onClick={fetchRecords}
@@ -652,6 +794,7 @@ export default function Home() {
                         customConfig: {
                           nameFieldId,
                           locationFieldId,
+                          defaultCenter: serializeCenter(defaultCenter),
                         },
                       });
                       setStatus("配置已保存");
@@ -697,7 +840,11 @@ export default function Home() {
             </div>
           )}
 
-          <LeafletMap points={activePoints} compact={isDashboardView} />
+          <LeafletMap
+            points={activePoints}
+            compact={isDashboardView}
+            fallbackCenter={defaultCenter}
+          />
 
           {isDashboardView ? null : (
             <div className="flex items-center justify-between rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800">
@@ -881,4 +1028,32 @@ function safeSample(raw: any) {
   } catch {
     return String(raw);
   }
+}
+
+function serializeCenter(center: [number, number]) {
+  return { lat: center[0], lng: center[1] };
+}
+
+function parseCenterTuple(raw: any): [number, number] | null {
+  if (!raw) return null;
+  const lat =
+    typeof raw.lat === "number"
+      ? raw.lat
+      : typeof raw.latitude === "number"
+        ? raw.latitude
+        : undefined;
+  const lng =
+    typeof raw.lng === "number"
+      ? raw.lng
+      : typeof raw.longitude === "number"
+        ? raw.longitude
+        : undefined;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return [lat as number, lng as number];
+  }
+  return null;
+}
+
+function isSameCenter(a: [number, number], b: [number, number]) {
+  return Math.abs(a[0] - b[0]) < 1e-6 && Math.abs(a[1] - b[1]) < 1e-6;
 }
