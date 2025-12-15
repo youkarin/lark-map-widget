@@ -71,9 +71,9 @@ export default function Home() {
   const [status, setStatus] = useState<string>("等待飞书环境…");
   const [tableOptions, setTableOptions] = useState<TableOption[]>([]);
   const [fieldOptions, setFieldOptions] = useState<FieldOption[]>([]);
-  const [selectedTableId, setSelectedTableId] = useState<string>("");
-  const [nameFieldId, setNameFieldId] = useState<string>("");
-  const [locationFieldId, setLocationFieldId] = useState<string>("");
+  const [selectedTableId, setSelectedTableIdState] = useState<string>("");
+  const [nameFieldId, setNameFieldIdState] = useState<string>("");
+  const [locationFieldId, setLocationFieldIdState] = useState<string>("");
   const [points, setPoints] = useState<MapPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingMock, setUsingMock] = useState(true);
@@ -90,6 +90,8 @@ export default function Home() {
   const nameFieldIdRef = useRef<string>("");
   const locationFieldIdRef = useRef<string>("");
   const exclusionRef = useRef<ExclusionConfig | undefined>(undefined);
+  const applyingConfigRef = useRef(false);
+  const lastSavedExclusionSignature = useRef<string>("");
   const [defaultCenter, setDefaultCenter] = useState<[number, number]>(DEFAULT_CENTER);
   const [centerPresetId, setCenterPresetId] = useState<string>(CENTER_PRESETS[0].id);
   const [customCenterInput, setCustomCenterInput] = useState<{ lat: string; lng: string }>({
@@ -99,6 +101,19 @@ export default function Home() {
   const [excludeFieldId, setExcludeFieldId] = useState<string>("");
   const [excludeOperator, setExcludeOperator] = useState<ExclusionOperator>("contains");
   const [excludeValue, setExcludeValue] = useState<string>("");
+
+  const updateSelectedTableId = (value: string) => {
+    selectedTableIdRef.current = value;
+    setSelectedTableIdState(value);
+  };
+  const updateNameFieldId = (value: string) => {
+    nameFieldIdRef.current = value;
+    setNameFieldIdState(value);
+  };
+  const updateLocationFieldId = (value: string) => {
+    locationFieldIdRef.current = value;
+    setLocationFieldIdState(value);
+  };
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -186,15 +201,15 @@ export default function Home() {
         }
 
         if (initialTableId) {
-          setSelectedTableId(initialTableId);
+          updateSelectedTableId(initialTableId);
           await loadFields(initialTableId, bitable);
         }
         if (initialNameField) {
-          setNameFieldId(initialNameField);
+          updateNameFieldId(initialNameField);
           setSelectedNameField(initialNameField);
         }
         if (initialLocField) {
-          setLocationFieldId(initialLocField);
+          updateLocationFieldId(initialLocField);
           setSelectedLocField(initialLocField);
         }
 
@@ -309,15 +324,30 @@ export default function Home() {
   useEffect(() => {
     exclusionRef.current = activeExclusion;
   }, [activeExclusion]);
+
   useEffect(() => {
-    selectedTableIdRef.current = selectedTableId;
-  }, [selectedTableId]);
-  useEffect(() => {
-    nameFieldIdRef.current = nameFieldId;
-  }, [nameFieldId]);
-  useEffect(() => {
-    locationFieldIdRef.current = locationFieldId;
-  }, [locationFieldId]);
+    if (applyingConfigRef.current) return;
+    const tableId = selectedTableIdRef.current || selectedTableId;
+    if (!tableId) return;
+    const nameId =
+      nameFieldIdRef.current || selectedNameField || nameFieldId;
+    const locId =
+      locationFieldIdRef.current || selectedLocField || locationFieldId;
+    const override = buildExclusionConfig(
+      excludeFieldId,
+      excludeOperator,
+      excludeValue
+    );
+    const key = makeExclusionSignature(tableId, nameId, locId, override ?? null);
+    if (lastSavedExclusionSignature.current === key) {
+      return;
+    }
+    lastSavedExclusionSignature.current = key;
+    const persist = async () => {
+      await autoSaveConfig(tableId, nameId, locId, undefined, override ?? null);
+    };
+    persist().catch((err) => console.warn("auto-save exclusion failed", err));
+  }, [excludeFieldId, excludeOperator, excludeValue]);
 
   // View/FullScreen 自动轮询最新数据
   useEffect(() => {
@@ -399,10 +429,10 @@ export default function Home() {
       }));
       setFieldOptions(parsed);
       if (parsed[0]) {
-        setNameFieldId(parsed[0].id);
+        updateNameFieldId(parsed[0].id);
       }
       if (parsed[1]) {
-        setLocationFieldId(parsed[1].id);
+        updateLocationFieldId(parsed[1].id);
       }
       if (!parsed.some((field: FieldOption) => field.id === excludeFieldId)) {
         setExcludeFieldId("");
@@ -507,15 +537,23 @@ export default function Home() {
         exclusionOverride === undefined
           ? activeExclusion
           : exclusionOverride || undefined;
+      const resolvedNameId = nameId ?? nameFieldId;
+      const resolvedLocId = locId ?? locationFieldId;
       await dash.saveConfig({
         dataConditions: dc,
         customConfig: {
-          nameFieldId: nameId ?? nameFieldId,
-          locationFieldId: locId ?? locationFieldId,
+          nameFieldId: resolvedNameId,
+          locationFieldId: resolvedLocId,
           defaultCenter: serializeCenter(centerToPersist),
           exclusion: exclusionToPersist,
         },
       });
+      lastSavedExclusionSignature.current = makeExclusionSignature(
+        targetTable || "",
+        resolvedNameId,
+        resolvedLocId,
+        exclusionToPersist ?? null
+      );
     } catch (err) {
       console.warn("saveConfig failed", err);
     }
@@ -653,6 +691,7 @@ export default function Home() {
   };
 
   const renderFromConfig = async () => {
+    applyingConfigRef.current = true;
     try {
       const dash = dashboardRef.current;
       const cfg: any = await dash?.getConfig?.();
@@ -702,18 +741,25 @@ export default function Home() {
         setExcludeValue("");
       }
 
+      lastSavedExclusionSignature.current = makeExclusionSignature(
+        tableId ?? "",
+        nameId,
+        locId,
+        savedExclusion ?? null
+      );
+
       if (tableId) {
-        setSelectedTableId(tableId);
+        updateSelectedTableId(tableId);
         if (bitableRef.current) {
           await loadFields(tableId, bitableRef.current);
         }
       }
       if (nameId) {
-        setNameFieldId(nameId);
+        updateNameFieldId(nameId);
         setSelectedNameField(nameId);
       }
       if (locId) {
-        setLocationFieldId(locId);
+        updateLocationFieldId(locId);
         setSelectedLocField(locId);
       }
 
@@ -725,6 +771,8 @@ export default function Home() {
       }
     } catch (err) {
       console.warn("renderFromConfig failed", err);
+    } finally {
+      applyingConfigRef.current = false;
     }
   };
 
@@ -778,10 +826,10 @@ export default function Home() {
                 value={selectedTableId}
                 onChange={async (e) => {
                   const nextId = e.target.value;
-                  setSelectedTableId(nextId);
+                  updateSelectedTableId(nextId);
                   setAutoFetched(false);
-                  setNameFieldId("");
-                  setLocationFieldId("");
+                  updateNameFieldId("");
+                  updateLocationFieldId("");
                   setSelectedNameField("");
                   setSelectedLocField("");
                   setExcludeFieldId("");
@@ -813,7 +861,7 @@ export default function Home() {
                 value={nameFieldId}
                 onChange={async (e) => {
                   const next = e.target.value;
-                  setNameFieldId(next);
+                  updateNameFieldId(next);
                   setSelectedNameField(next);
                   setAutoFetched(false);
                   await autoSaveConfig(selectedTableId, next, selectedLocField);
@@ -837,7 +885,7 @@ export default function Home() {
                 value={locationFieldId}
                 onChange={async (e) => {
                   const next = e.target.value;
-                  setLocationFieldId(next);
+                  updateLocationFieldId(next);
                   setSelectedLocField(next);
                   setAutoFetched(false);
                   await autoSaveConfig(selectedTableId, selectedNameField, next);
@@ -1017,6 +1065,12 @@ export default function Home() {
                         },
                       });
                       setDefaultCenter(centerToPersist);
+                      lastSavedExclusionSignature.current = makeExclusionSignature(
+                        selectedTableId,
+                        nameFieldId,
+                        locationFieldId,
+                        exclusionToPersist ?? null
+                      );
                       setStatus("配置已保存");
                     } catch (e) {
                         console.error(e);
@@ -1333,6 +1387,20 @@ function safeSample(raw: any) {
 
 function serializeCenter(center: [number, number]) {
   return { lat: center[0], lng: center[1] };
+}
+
+function makeExclusionSignature(
+  tableId: string,
+  nameId?: string | null,
+  locId?: string | null,
+  exclusion?: ExclusionConfig | null | undefined
+) {
+  return [
+    tableId || "",
+    nameId || "",
+    locId || "",
+    JSON.stringify(exclusion ?? null),
+  ].join("|");
 }
 
 function parseCenterTuple(raw: any): [number, number] | null {
